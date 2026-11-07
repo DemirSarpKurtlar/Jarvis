@@ -27,21 +27,37 @@ def guards(qapp, tmp_path):
         g.release()
 
 
-def test_second_instance_cannot_acquire_and_activates_first(qtbot, guards):
+# İkinci kopya gerçekte ayrı bir süreçtir. Aynı thread'de istemci + sunucu Windows'ta
+# (named pipe) kilitlenir; bu yüzden gönderen taraf ayrı bir Python sürecinde çalışır.
+SENDER = ("import sys; from pathlib import Path; from PySide6.QtCore import QCoreApplication; "
+          "from jarvis.integrations.single_instance import SingleInstance; "
+          "app = QCoreApplication([]); g = SingleInstance(Path(sys.argv[1])); "
+          "sys.exit(0 if (not g.acquire() and g.send(sys.argv[2], timeout_s=10)) else 1)")
+
+
+def _send_from_other_process(qtbot, first, key_dir, message):
+    proc = subprocess.Popen([sys.executable, "-c", SENDER, str(key_dir), message], cwd=ROOT)
+    try:
+        with qtbot.waitSignal(first.message_received, timeout=30000) as sig:
+            pass
+        assert proc.wait(timeout=30) == 0
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    return sig.args
+
+
+def test_second_instance_cannot_acquire_and_activates_first(qtbot, guards, tmp_path):
     first, second = guards(), guards()
     assert first.acquire() and first.is_primary and first.listening
     assert not second.acquire()
-    with qtbot.waitSignal(first.message_received, timeout=3000) as sig:
-        assert second.send(MSG_ACTIVATE, timeout_s=2)
-    assert sig.args == [MSG_ACTIVATE]
+    assert _send_from_other_process(qtbot, first, tmp_path / "veri", MSG_ACTIVATE) == [MSG_ACTIVATE]
 
 
-def test_quit_message_is_delivered(qtbot, guards):
-    first, second = guards(), guards()
+def test_quit_message_is_delivered(qtbot, guards, tmp_path):
+    first = guards()
     first.acquire()
-    with qtbot.waitSignal(first.message_received, timeout=3000) as sig:
-        second.send(MSG_QUIT, timeout_s=2)
-    assert sig.args == [MSG_QUIT]
+    assert _send_from_other_process(qtbot, first, tmp_path / "veri", MSG_QUIT) == [MSG_QUIT]
 
 
 def test_unknown_message_is_rejected(guards):
