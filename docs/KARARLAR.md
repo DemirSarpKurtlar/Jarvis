@@ -42,13 +42,29 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 | Anahtar | Windows Credential Manager. Kaydetmeden önce ücretsiz model sorgusuyla doğrulanır. |
 | Canlı testler | `pytest -m live`, varsayılan çalıştırmada atlanır (ücretli). |
 
+## 2026-11-07 — Aşama 4 teknik kararları (hafıza)
+
+| Konu | Karar |
+|---|---|
+| Depo | Aynı SQLite veritabanı, 2. şema geçişi: `memories` tablosu + FTS5 dizini (`unicode61 remove_diacritics 2`) + tetikleyiciler. |
+| Türkçe arama | Dizin ve sorgu aynı sadeleştirmeden geçer (Türkçe küçük harf, ı/İ/ş/ğ/ü/ö/ç aksansız). Ekler için kelimenin ilk 5 harfiyle önek araması. |
+| Puan | %60 ilgi (bm25) + %20 önem + %10 yakınlık (60 gün yarı ömür) + %10 kullanım sıklığı; en çok 5 kayıt. Eşleşme azsa yüksek önemli tercih/kişisel bilgiler eklenir. |
+| Bağlama ekleme | Kayıtlar sistem isteminin **değişken** bloğuna eklenir; önbelleklenen sabit blok bayt bayt aynı kalır. Her kayıt "doğrulanmış" ya da "doğrulanmamış çıkarım" diye etiketlenir. |
+| Bilgi çıkarma | Önce yerel süzgeç (ücretsiz); işaret varsa Haiku 5.5, effort `low`, düşünme kapalı, yapılandırılmış JSON çıktısı (`output_config.format`). Arka planda, cevabı geciktirmez. Maliyet `usage` tablosuna "hafıza" nedeniyle yazılır. |
+| Güvenlik kuralları (kodda) | Parola/anahtar/kart numarası asla kaydedilmez. Çıkarım asla doğrulanmış bilgi olarak kaydedilmez (onay bekler). Hassas bilgi (sağlık, para, kesin konum, kimlik, inanç, siyaset, cinsel yaşam, hukuki durum) kullanıcı Hafıza ekranında "Hatırla" demeden kullanılmaz; açık "hatırla" komutunda da. |
+| Tekrar | Kök kümesi örtüşmesi ≥ %75 ya da karakter benzerliği ≥ %92 ise yeni kayıt eklenmez, mevcut kayıt güncellenir (kullanıcının en yeni ifadesi geçerli). Model bir düzeltmeyi `replaces_id` ile bildirebilir. |
+| "unut ..." | Tamamen yerel, istekten **önce** çalışır; bütün kelimeleri geçen kayıtlar silinir (en çok 5), Claude'a ne silindiği söylenir. "bunu unut" bu konuşmanın son kaydını siler. |
+| Özet | Konuşma bittiğinde (30 dk sessizlik sonrası yeni konuşma, kapanış ya da önceki oturumdan kalan) Haiku ile 1-2 cümle. 4 mesajdan kısa konuşmalar özetlenmez. Özetler 90 gün (önemliyse 365 gün) sonra silinir; silinen özet yeniden üretilmez. |
+| Bütçe | Bütçe dolmuşsa ve politika "durdur" ya da "sor" ise hafıza çağrıları sessizce atlanır (log satırı yazılır). |
+| Hafıza kapalı | Kayıt kullanılmaz, bilgi çıkarılmaz, özet yapılmaz (API çağrısı yok). Mevcut kayıtlar silinmez; silme ve "unut" her zaman çalışır. |
+
 ## Güncel aşama sırası
 
 0. Ortam ve mimari ✅
 1. Temel: yapı, ayarlar, loglama, PySide6 iskeleti, durum makinesi ✅ (Linux'ta test edildi, Windows doğrulaması bekliyor: `docs/ASAMA1-TEST-RAPORU.md`)
 2. Claude entegrasyonu: metin sohbeti, yönlendirici, token ve maliyet takibi, bütçe ✅ (sahte API ile test edildi; canlı API testi Windows'ta bekliyor: `docs/ASAMA2-TEST-RAPORU.md`)
 3. Ses motoru: uyandırma kelimesi, STT, TTS, sözü kesme, bekleme
-4. Hafıza
+4. Hafıza ✅ (sahte API ile test edildi; canlı test Windows'ta bekliyor: `docs/ASAMA4-TEST-RAPORU.md`)
 5. Windows araçları ve izin sistemi
 6. Orkestrasyon
 7. Profesyonel arayüz

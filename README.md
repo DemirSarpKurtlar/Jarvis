@@ -34,13 +34,22 @@ JARVIS'i aç, **Ayarlar > Claude bağlantısı > Anahtarı gir**. Anahtar önce 
 sonra Windows Credential Manager'a kaydedilir. Anahtarı [Anthropic Console](https://platform.claude.com) > API Keys'ten alabilirsin.
 Claude Pro/Max aboneliği API kullanımını kapsamaz; API ayrı faturalanır.
 
+## Hafıza
+
+JARVIS konuşmalardan yalnızca işe yarayacak bilgileri (tercihler, kendi isteğinle verdiğin kişisel bilgiler,
+görevler, rutinler, kararlar, teknik sorunlar ve konuşma özetleri) yerel veritabanında saklar. Her cümleyi kaydetmez.
+"Bunu hatırla: ..." ve "... unut" komutları çalışır. Sağlık, para, kesin konum gibi hassas bilgiler ve JARVIS'in
+tahmin ettiği şeyler **Hafıza** ekranında onaylamadan kullanılmaz; şifre ve API anahtarı hiçbir zaman kaydedilmez.
+Hafıza ekranından kayıtları görebilir, düzeltebilir, silebilir ya da hafızayı tamamen kapatabilirsin.
+Ayrıntı: `docs/KARARLAR.md` (Aşama 4) ve `docs/ASAMA4-TEST-RAPORU.md`.
+
 ## Dosyalar nerede?
 
 | Ne | Windows'ta |
 |---|---|
 | Ayarlar | `%APPDATA%\JARVIS\settings.json` |
 | Loglar | `%LOCALAPPDATA%\JARVIS\Logs\jarvis.log` |
-| Veri (ileride hafıza veritabanı) | `%LOCALAPPDATA%\JARVIS\` |
+| Veri (konuşmalar, maliyet, hafıza: `jarvis.db`) | `%LOCALAPPDATA%\JARVIS\` |
 
 `JARVIS_HOME` ortam değişkeni verilirse hepsi o klasörün altına toplanır (taşınabilir kullanım ve testler).
 

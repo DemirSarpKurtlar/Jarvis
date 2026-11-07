@@ -2,7 +2,7 @@
 
 Tek bir bağlantı, kilitle korunur. Şema sürümlüdür: her geçiş (migration) bir
 kez ve sırayla uygulanır. Aşama 2: kullanım (maliyet) ve konuşma kayıtları.
-Aşama 4 hafıza tablolarını yeni bir geçişle ekleyecek.
+Aşama 4: hafıza tabloları (2. geçiş).
 
 Çağrılar kısa ve hızlıdır; yine de asistan bunları arka plan
 executor'ünde çalıştırır (arayüz thread'i hiç beklemez).
@@ -57,6 +57,47 @@ MIGRATIONS: list[str] = [
         cost_usd REAL
     );
     CREATE INDEX idx_messages_conv ON messages(conversation_id);
+    """,
+    # 2: hafıza (Aşama 4) — uzun süreli hafıza kayıtları, tam metin arama dizini, özet işaretleri
+    """
+    CREATE TABLE memories (
+        id INTEGER PRIMARY KEY,
+        category TEXT NOT NULL,
+        content TEXT NOT NULL,
+        norm TEXT NOT NULL,               -- arama ve tekrar tespiti için sadeleştirilmiş metin
+        importance INTEGER NOT NULL CHECK (importance BETWEEN 1 AND 5),
+        source TEXT NOT NULL,             -- 'konuşma:<id>' | 'kullanıcı' | 'çıkarım'
+        is_inference INTEGER NOT NULL DEFAULT 0,
+        sensitive INTEGER NOT NULL DEFAULT 0,
+        sensitive_kind TEXT,
+        status TEXT NOT NULL CHECK (status IN ('active', 'pending_confirmation')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        expires_at TEXT,
+        last_used_at TEXT,
+        use_count INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX idx_memories_status ON memories(status);
+    CREATE INDEX idx_memories_expires ON memories(expires_at);
+    CREATE INDEX idx_memories_source ON memories(source);
+    CREATE VIRTUAL TABLE memories_fts USING fts5(
+        norm, content='memories', content_rowid='id', tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+        INSERT INTO memories_fts(rowid, norm) VALUES (new.id, new.norm);
+    END;
+    CREATE TRIGGER memories_ad AFTER DELETE ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, norm) VALUES ('delete', old.id, old.norm);
+    END;
+    CREATE TRIGGER memories_au AFTER UPDATE OF norm ON memories BEGIN
+        INSERT INTO memories_fts(memories_fts, rowid, norm) VALUES ('delete', old.id, old.norm);
+        INSERT INTO memories_fts(rowid, norm) VALUES (new.id, new.norm);
+    END;
+    CREATE TABLE memory_summarized (
+        conversation_id INTEGER PRIMARY KEY,
+        ts_utc TEXT NOT NULL,
+        result TEXT NOT NULL              -- 'özet' | 'kısa' | 'gereksiz'
+    );
     """,
 ]
 
