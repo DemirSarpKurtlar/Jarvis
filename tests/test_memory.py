@@ -96,6 +96,22 @@ def test_persists_across_reopen(tmp_path):
     db2.close()
 
 
+def test_existing_phase2_database_is_upgraded(tmp_path, monkeypatch):
+    import jarvis.storage.database as dbmod
+    full = list(dbmod.MIGRATIONS)
+    monkeypatch.setattr(dbmod, "MIGRATIONS", full[:1])
+    old = Database(tmp_path / "j.db")
+    assert old.schema_version == 1
+    old.execute("INSERT INTO conversations (started_at, title) VALUES ('2026-11-01T10:00:00+00:00', 'eski')")
+    old.close()
+    monkeypatch.setattr(dbmod, "MIGRATIONS", full)
+    new = Database(tmp_path / "j.db")
+    assert new.schema_version == 2
+    assert new.query("SELECT title FROM conversations")[0][0] == "eski"   # eski veri korunur
+    assert MemoryStore(new).add(mem("Steam kullanıyor.", "app")).action == "eklendi"
+    new.close()
+
+
 def test_duplicate_is_merged_not_inserted(tmp_path):
     s = MemoryStore(Database(tmp_path / "j.db"))
     a = s.add(mem("Kullanıcının adı Demir.", "personal", importance=3))

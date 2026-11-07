@@ -2,7 +2,7 @@
 
 **Tarih:** 2026-11-07
 **Ortam:** Bulut Linux konteyneri, Python 3.13, anthropic SDK 2.6.0, SQLite 3.53 (FTS5), PySide6 (ekransız)
-**Sonuç:** 139/139 otomatik test geçti (103 eski + 36 yeni). Gerçek API ile ücretli hafıza testleri **kullanıcının bilgisayarında yapılacak**.
+**Sonuç:** 140/140 otomatik test geçti (103 eski + 37 yeni). Gerçek API ile ücretli hafıza testleri **kullanıcının bilgisayarında yapılacak**.
 
 ![Hafıza ekranı](asama4-hafiza.png)
 
