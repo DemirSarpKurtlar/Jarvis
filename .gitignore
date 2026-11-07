@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# JARVIS çalışma zamanı verileri (asla commit edilmez)
+logs/
+*.log
+*.db
+*.sqlite3
+settings.json
+.env
+
+# Editör
+.vscode/
+.idea/

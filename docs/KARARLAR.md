@@ -17,10 +17,20 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 | İnternet araması | Claude `web_search` aracı **açık** (her 1.000 aramada $10, bütçe limitine dahil). `web_fetch` aracı token dışında ücretsiz. |
 | Aşama sırası | Claude entegrasyonu ses motorundan **önce** yapılacak. |
 
+## 2026-11-07 — Aşama 1 teknik kararları
+
+| Konu | Karar |
+|---|---|
+| Paket yapısı | Önerilen klasörler tek bir `jarvis/` Python paketinin altında. Paketleme (PyInstaller) ve importlar için daha sağlam. |
+| Async + Qt | `qasync`: asyncio ve Qt aynı döngüde çalışır. Engelleyici işler `ThreadPoolExecutor`'da yürür. |
+| Ayar dosyası | JSON + pydantic doğrulama, atomik kayıt. Bozuk dosya sessizce yutulmaz, yedeklenip kullanıcıya bildirilir. |
+| Fontlar | Değişken fontlardan üretilmiş sabit ağırlıklar (Qt uyumluluğu için). |
+| Görselleştirici performansı | Sabit katmanlar önbellekte. Beklemede 8 fps, etkin durumlarda 30 fps, pencere gizliyken 0. |
+
 ## Güncel aşama sırası
 
 0. Ortam ve mimari ✅
-1. Temel: yapı, ayarlar, loglama, PySide6 iskeleti, durum makinesi
+1. Temel: yapı, ayarlar, loglama, PySide6 iskeleti, durum makinesi ✅ (Linux'ta test edildi, Windows doğrulaması bekliyor: `docs/ASAMA1-TEST-RAPORU.md`)
 2. Claude entegrasyonu: metin sohbeti, yönlendirici, token ve maliyet takibi, bütçe
 3. Ses motoru: uyandırma kelimesi, STT, TTS, sözü kesme, bekleme
 4. Hafıza

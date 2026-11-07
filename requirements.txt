@@ -1,0 +1,7 @@
+# Çalışma zamanı bağımlılıkları (Aşama 1). Test edilen sürümler yorumda.
+PySide6>=6.8,<7          # 6.12.0
+qasync>=0.27             # 0.28.0
+psutil>=6.0              # 7.2.2
+pydantic>=2.7,<3         # 2.14.3
+platformdirs>=4.2        # 4.14.5
+nvidia-ml-py>=12.535     # 13.615.71 (NVIDIA GPU sıcaklığı; kart yoksa sorun çıkarmaz)

@@ -1,0 +1,4 @@
+-r requirements.txt
+pytest>=8                # 9.2.0
+pytest-qt>=4.4           # 4.5.0
+fonttools>=4.50          # yalnızca font dosyalarını yeniden üretmek için
