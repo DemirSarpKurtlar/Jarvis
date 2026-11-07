@@ -7,7 +7,10 @@ Türkçe konuşan, Claude API ile düşünen, Windows'u güvenli şekilde yönet
 
 ## Kurulum (Windows)
 
-Python **3.12** önerilir.
+Hazır kurulum programı (yönetici izni gerekmez), Windows ile başlatma, yükseltme, kaldırma ve
+kaynaktan exe/kurulum derleme için: **`docs/KURULUM.md`**.
+
+Kaynaktan çalıştırmak için Python **3.12** önerilir.
 
 ```powershell
 cd C:\Users\<adın>\Projeler\Jarvis

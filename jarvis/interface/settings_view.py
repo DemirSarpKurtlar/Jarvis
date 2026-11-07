@@ -14,6 +14,7 @@ from jarvis.core.assistant import Assistant
 from jarvis.core.chat_service import ChatService, ClaudeStatus
 from jarvis.core.events import Topics
 from jarvis.interface.dialogs import ApiKeyDialog
+from jarvis.interface.startup_settings import StartupSection  # Aşama 9
 from jarvis.interface.theme import C
 from jarvis.paths import AppPaths
 
@@ -108,6 +109,10 @@ class SettingsView(QWidget):
                       "Tutarlar tahminidir, kesin fatura Anthropic Console'dadır.", objectName="Not")
         hint.setWordWrap(True)
         lay.addWidget(hint)
+
+        # --- Başlangıç ve pencere (Aşama 9) ---
+        self.startup = StartupSection(assistant)
+        lay.addWidget(self.startup)
 
         # --- Dosyalar ---
         lay.addWidget(_section("Dosyalar"))

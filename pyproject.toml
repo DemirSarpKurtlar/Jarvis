@@ -32,11 +32,15 @@ version = { attr = "jarvis.__version__" }
 include = ["jarvis*"]
 
 [tool.setuptools.package-data]
-jarvis = ["assets/fonts/*"]
+jarvis = ["assets/fonts/*", "assets/icon/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 qt_api = "pyside6"
 # Canlı (ücretli) API testleri varsayılan olarak çalışmaz: `python -m pytest -m live`
 addopts = "-m 'not live'"
-markers = ["live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)"]
+markers = [
+    "live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)",
+    "windows: yalnızca Windows'ta çalışır (kayıt defteri, Windows API'leri); başka sistemde atlanır",
+    "models: indirilmiş ses modelleri gerektirir (CI'da modeller önbelleğe alındıktan sonra ayrı adımda çalışır)",
+]

@@ -1,0 +1,338 @@
+# JARVIS sürekli entegrasyon
+#
+# windows-latest üzerinde:
+#   testler (windows işaretli testler dahil) -> model testleri -> kaynaktan duman testi ve tek örnek testi
+#   -> PyInstaller -> exe duman testi -> Inno Setup kurulumu -> sessiz kurulum, çalıştırma, çalışırken
+#   yükseltme, kaldırma (veri kalır), yeniden kurulum, verilerle birlikte kaldırma
+# ubuntu-latest üzerinde: testler.
+#
+# Diğer dallarla sözleşme:
+#   * Yeni bağımlılıklar requirements.txt'ye eklenir; buradaki adımlar ve packaging/jarvis.spec
+#     onları otomatik alır (spec isteğe bağlı paketleri kuruluysa ekler).
+#   * Yalnızca Windows'ta çalışan testler @pytest.mark.windows ile işaretlenir ve
+#     Windows dışında kendini atlar. Model gerektiren testler @pytest.mark.models ile işaretlenir.
+#   * Ses modellerini indiren betik scripts/fetch_models.py olursa CI onu çalıştırır;
+#     betik modelleri JARVIS_MODELS_DIR (ve Hugging Face için HF_HOME) altına koymalı.
+#     Bu klasör actions/cache ile önbelleğe alınır.
+
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONIOENCODING: "utf-8"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  SMOKE_SECONDS: "5"
+
+jobs:
+  linux:
+    name: Linux / pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: requirements*.txt
+
+      - name: Qt ve ses için sistem kütüphaneleri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libportaudio2
+
+      - name: Bağımlılıkları kur
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q -ra
+
+  windows:
+    name: Windows / test, paket, kurulum
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: |
+            requirements*.txt
+            packaging/requirements-build.txt
+
+      - name: Ortam bilgisi ve klasörler
+        run: |
+          $models = Join-Path $env:USERPROFILE "jarvis-models"
+          $logs = Join-Path $env:RUNNER_TEMP "ci-logs"
+          New-Item -ItemType Directory -Force -Path $models, $logs | Out-Null
+          "JARVIS_MODELS_DIR=$models" >> $env:GITHUB_ENV
+          "HF_HOME=$(Join-Path $models 'huggingface')" >> $env:GITHUB_ENV
+          "CI_LOGS=$logs" >> $env:GITHUB_ENV
+          python --version
+          [System.Environment]::OSVersion.VersionString
+          "Çalışma klasörü: $env:GITHUB_WORKSPACE"
+          "Model klasörü:   $models"
+
+      - name: Bağımlılıkları kur
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt -r packaging/requirements-build.txt
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python -m pip list
+
+      - name: pytest (windows işaretli testler dahil)
+        env:
+          QT_QPA_PLATFORM: offscreen
+        # Model testleri sonraki adımda, modeller indirildikten sonra çalışır
+        run: python -m pytest -q -ra -m "not live and not models" --junitxml="$env:CI_LOGS\pytest-windows.xml"
+
+      - name: Ses modelleri (önbellek)
+        uses: actions/cache@v4
+        with:
+          path: ~/jarvis-models
+          key: jarvis-models-v1-${{ runner.os }}-${{ hashFiles('scripts/fetch_models.py', 'jarvis/**/models*.py') }}
+
+      - name: Ses modellerini indir
+        run: |
+          if (Test-Path scripts/fetch_models.py) {
+            python scripts/fetch_models.py
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          } else {
+            "scripts/fetch_models.py yok: indirilecek model yok."
+          }
+          Get-ChildItem -Recurse $env:JARVIS_MODELS_DIR -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum |
+            ForEach-Object { "Model klasörü: $($_.Count) dosya, $([math]::Round($_.Sum / 1MB, 1)) MB" }
+
+      - name: pytest -m models
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          python -m pytest -q -ra -m models --junitxml="$env:CI_LOGS\pytest-models.xml"
+          # 5 = hiç test toplanmadı (henüz models işaretli test yok): başarı say
+          if ($LASTEXITCODE -eq 5) { "models işaretli test yok, adım geçildi."; exit 0 }
+          exit $LASTEXITCODE
+
+      - name: Duman testi (kaynaktan, python -m jarvis)
+        env:
+          JARVIS_HOME: ${{ runner.temp }}\smoke-src
+        run: |
+          python scripts/smoke_run.py --log "$env:JARVIS_HOME\logs\jarvis.log" `
+            --expect "Anahtar deposu: Windows Credential Manager (güvenli)" `
+            -- python -m jarvis --smoke-test $env:SMOKE_SECONDS
+
+      - name: Tek örnek testi (kaynaktan)
+        env:
+          JARVIS_HOME: ${{ runner.temp }}\instance-src
+        run: python scripts/instance_check.py --log "$env:JARVIS_HOME\logs\jarvis.log" -- python -m jarvis
+
+      - name: PyInstaller
+        run: |
+          python -m PyInstaller packaging/jarvis.spec --noconfirm --clean --distpath dist --workpath build/pyinstaller
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (-not (Test-Path dist\JARVIS\JARVIS.exe)) { throw "dist\JARVIS\JARVIS.exe oluşmadı" }
+          $size = (Get-ChildItem -Recurse dist\JARVIS | Measure-Object -Property Length -Sum).Sum
+          "Paket boyutu: $([math]::Round($size / 1MB, 1)) MB"
+          (Get-Item dist\JARVIS\JARVIS.exe).VersionInfo | Format-List FileVersion, ProductVersion, FileDescription
+
+      - name: Duman testi (paketlenmiş exe)
+        env:
+          JARVIS_HOME: ${{ runner.temp }}\smoke-dist
+        run: |
+          python scripts/smoke_run.py --log "$env:JARVIS_HOME\logs\jarvis.log" `
+            --expect "Anahtar deposu: Windows Credential Manager (güvenli)" `
+            -- "$env:GITHUB_WORKSPACE\dist\JARVIS\JARVIS.exe" --smoke-test $env:SMOKE_SECONDS
+
+      - name: Tek örnek testi (paketlenmiş exe)
+        env:
+          JARVIS_HOME: ${{ runner.temp }}\instance-dist
+        run: python scripts/instance_check.py --log "$env:JARVIS_HOME\logs\jarvis.log" -- "$env:GITHUB_WORKSPACE\dist\JARVIS\JARVIS.exe"
+
+      - name: Inno Setup kur
+        run: |
+          choco install innosetup -y --no-progress
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $iscc = @("${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe", "$env:ProgramFiles\Inno Setup 6\ISCC.exe") |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "ISCC.exe bulunamadı" }
+          "ISCC=$iscc" >> $env:GITHUB_ENV
+          "ISCC: $iscc"
+
+      - name: Kurulum programını derle
+        run: |
+          $version = (python scripts/version_info.py).Trim()
+          $numeric = (python scripts/version_info.py --numeric).Trim()
+          "Sürüm: $version ($numeric)"
+          & $env:ISCC "/DAppVersion=$version" "/DAppNumericVersion=$numeric" `
+            "/DSourceDir=$env:GITHUB_WORKSPACE\dist\JARVIS" "/DOutputDir=$env:GITHUB_WORKSPACE\dist\installer" `
+            packaging\jarvis.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $setup = Join-Path $env:GITHUB_WORKSPACE "dist\installer\JARVIS-Kurulum-$version.exe"
+          if (-not (Test-Path $setup)) { throw "Kurulum dosyası oluşmadı: $setup" }
+          "SETUP_EXE=$setup" >> $env:GITHUB_ENV
+          "JARVIS_VERSION=$version" >> $env:GITHUB_ENV
+          "Kurulum: $setup ($([math]::Round((Get-Item $setup).Length / 1MB, 1)) MB)"
+
+      - name: Sessiz kurulum (autostart görevi seçili)
+        run: |
+          $p = Start-Process -FilePath $env:SETUP_EXE -Wait -PassThru -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART", "/TASKS=autostart", "/LOG=$env:CI_LOGS\install-1.log"
+          "Kurulum çıkış kodu: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { Get-Content "$env:CI_LOGS\install-1.log" -Tail 60; exit 1 }
+          $app = Join-Path $env:LOCALAPPDATA "Programs\JARVIS"
+          $exe = Join-Path $app "JARVIS.exe"
+          if (-not (Test-Path $exe)) { throw "Kurulu exe yok: $exe" }
+          "INSTALL_DIR=$app" >> $env:GITHUB_ENV
+          "INSTALLED_EXE=$exe" >> $env:GITHUB_ENV
+          $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\JARVIS.lnk"
+          if (-not (Test-Path $lnk)) { throw "Başlat menüsü kısayolu yok: $lnk" }
+          $run = (Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name JARVIS -ErrorAction SilentlyContinue).JARVIS
+          "Run kaydı: $run"
+          if ($run -ne "`"$exe`" --baslangic") { throw "Run kaydı beklenen değerde değil" }
+
+      - name: Duman testi (kurulu exe, varsayılan veri klasörleri)
+        run: |
+          python scripts/smoke_run.py --log "$env:LOCALAPPDATA\JARVIS\Logs\jarvis.log" `
+            --expect "Anahtar deposu: Windows Credential Manager (güvenli)" `
+            -- "$env:INSTALLED_EXE" --smoke-test $env:SMOKE_SECONDS
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $settings = Get-Content "$env:APPDATA\JARVIS\settings.json" -Raw | ConvertFrom-Json
+          "settings.general.autostart = $($settings.general.autostart)"
+          if (-not $settings.general.autostart) { throw "Ayar, kurulumun yazdığı Run kaydıyla eşitlenmedi" }
+
+      - name: Tek örnek testi (kurulu exe)
+        run: python scripts/instance_check.py --log "$env:LOCALAPPDATA\JARVIS\Logs\jarvis.log" -- "$env:INSTALLED_EXE"
+
+      - name: JARVIS açıkken yükseltme (aynı AppId ile yeniden kurulum)
+        run: |
+          $log = "$env:LOCALAPPDATA\JARVIS\Logs\jarvis.log"
+          $offset = (Get-Item $log).Length
+          $app = Start-Process -FilePath $env:INSTALLED_EXE -ArgumentList "--smoke-test", "180" -PassThru
+          $null = $app.Handle  # çıkış kodunu sonra okuyabilmek için
+          $deadline = (Get-Date).AddSeconds(60)
+          do {
+            Start-Sleep -Milliseconds 500
+            $fs = [System.IO.File]::Open($log, 'Open', 'Read', 'ReadWrite'); $fs.Seek($offset, 'Begin') | Out-Null
+            $text = (New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)).ReadToEnd(); $fs.Close()
+          } until ($text -match "Arayüz hazır" -or (Get-Date) -gt $deadline)
+          if ($text -notmatch "Arayüz hazır") { throw "JARVIS açılmadı" }
+          $p = Start-Process -FilePath $env:SETUP_EXE -Wait -PassThru -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART", "/LOG=$env:CI_LOGS\install-2-upgrade.log"
+          "Yükseltme çıkış kodu: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { Get-Content "$env:CI_LOGS\install-2-upgrade.log" -Tail 60; exit 1 }
+          if (-not $app.WaitForExit(60000)) { $app.Kill(); throw "Kurulum çalışan JARVIS'i kapatmadı" }
+          "Çalışan JARVIS çıkış kodu: $($app.ExitCode)"
+          $fs = [System.IO.File]::Open($log, 'Open', 'Read', 'ReadWrite'); $fs.Seek($offset, 'Begin') | Out-Null
+          $text = (New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)).ReadToEnd(); $fs.Close()
+          $text
+          if ($app.ExitCode -ne 0) { throw "JARVIS temiz kapanmadı" }
+          if ($text -notmatch "--kapat: çalışan JARVIS kapandı") { throw "Kurulum --kapat yolunu kullanmadı" }
+          if ($text -match "(?m)^\S+ \S+ (ERROR|CRITICAL)\s" -or $text -match "Traceback") { throw "Logda hata var" }
+          if (-not (Test-Path $env:INSTALLED_EXE)) { throw "Yükseltmeden sonra exe yok" }
+
+      - name: Duman testi (yükseltilmiş kurulum)
+        run: |
+          python scripts/smoke_run.py --log "$env:LOCALAPPDATA\JARVIS\Logs\jarvis.log" `
+            -- "$env:INSTALLED_EXE" --smoke-test $env:SMOKE_SECONDS
+
+      - name: Sessiz kaldırma (kullanıcı verisi kalmalı)
+        run: |
+          $uninst = Join-Path $env:INSTALL_DIR "unins000.exe"
+          if (-not (Test-Path $uninst)) { throw "Kaldırma programı yok: $uninst" }
+          Start-Process -FilePath $uninst -Wait -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=$env:CI_LOGS\uninstall-1.log"
+          # Kaldırıcı kendini geçici klasöre kopyalayıp orada çalışır: klasör silinene kadar bekle
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path $env:INSTALL_DIR) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          if (Test-Path $env:INSTALL_DIR) {
+            Get-ChildItem -Recurse $env:INSTALL_DIR | Select-Object -First 30 FullName
+            throw "Program klasörü silinmedi: $env:INSTALL_DIR"
+          }
+          "Program klasörü silindi."
+          $run = Get-ItemProperty "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name JARVIS -ErrorAction SilentlyContinue
+          if ($run) { throw "Run kaydı kaldırılmadı" }
+          if (Test-Path (Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\JARVIS.lnk")) { throw "Kısayol kaldırılmadı" }
+          if (-not (Test-Path "$env:APPDATA\JARVIS\settings.json")) { throw "Ayarlar silinmemeliydi" }
+          if (-not (Test-Path "$env:LOCALAPPDATA\JARVIS")) { throw "Veri klasörü silinmemeliydi" }
+          "Kullanıcı verisi yerinde: $env:APPDATA\JARVIS, $env:LOCALAPPDATA\JARVIS"
+
+      - name: Yeniden kurulum ve verilerle birlikte kaldırma (/DELETEUSERDATA=1)
+        run: |
+          # Kurulu uygulamanın logları birazdan silinecek: önce yapıt klasörüne kopyala
+          if (Test-Path "$env:LOCALAPPDATA\JARVIS\Logs") { Copy-Item -Recurse "$env:LOCALAPPDATA\JARVIS\Logs" "$env:CI_LOGS\app-installed" }
+          $p = Start-Process -FilePath $env:SETUP_EXE -Wait -PassThru -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/CURRENTUSER", "/NORESTART", "/LOG=$env:CI_LOGS\install-3.log"
+          if ($p.ExitCode -ne 0) { Get-Content "$env:CI_LOGS\install-3.log" -Tail 60; exit 1 }
+          Start-Process -FilePath (Join-Path $env:INSTALL_DIR "unins000.exe") -Wait -ArgumentList `
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DELETEUSERDATA=1", "/LOG=$env:CI_LOGS\uninstall-2.log"
+          $deadline = (Get-Date).AddSeconds(120)
+          while (((Test-Path $env:INSTALL_DIR) -or (Test-Path "$env:LOCALAPPDATA\JARVIS")) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+          }
+          foreach ($d in @($env:INSTALL_DIR, "$env:APPDATA\JARVIS", "$env:LOCALAPPDATA\JARVIS")) {
+            if (Test-Path $d) { Get-Content "$env:CI_LOGS\uninstall-2.log" -Tail 40; throw "Silinmedi: $d" }
+          }
+          "Program ve kullanıcı verisi tamamen silindi."
+
+      - name: Yapıtlar - kurulum programı
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-kurulum
+          path: dist/installer/*.exe
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Yapıtlar - PyInstaller klasörü
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: JARVIS-pyinstaller
+          path: dist/JARVIS/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Logları topla
+        if: always()
+        run: |
+          $dest = $env:CI_LOGS
+          if (-not $dest) { exit 0 }
+          foreach ($src in @("$env:RUNNER_TEMP\smoke-src", "$env:RUNNER_TEMP\instance-src", "$env:RUNNER_TEMP\smoke-dist",
+                             "$env:RUNNER_TEMP\instance-dist")) {
+            if (Test-Path "$src\logs") { Copy-Item -Recurse "$src\logs" (Join-Path $dest ("app-" + (Split-Path $src -Leaf))) }
+          }
+          if ((Test-Path "$env:LOCALAPPDATA\JARVIS\Logs") -and -not (Test-Path "$dest\app-installed")) {
+            Copy-Item -Recurse "$env:LOCALAPPDATA\JARVIS\Logs" "$dest\app-installed"
+          }
+          if (Test-Path build\pyinstaller\jarvis\warn-jarvis.txt) { Copy-Item build\pyinstaller\jarvis\warn-jarvis.txt $dest }
+          Get-ChildItem -Recurse $dest | Select-Object FullName, Length | Format-Table -AutoSize
+
+      - name: Yapıtlar - loglar
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-loglari
+          path: ${{ runner.temp }}/ci-logs/
+          if-no-files-found: ignore
+          retention-days: 14

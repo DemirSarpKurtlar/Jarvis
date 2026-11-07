@@ -42,6 +42,19 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 | Anahtar | Windows Credential Manager. Kaydetmeden önce ücretsiz model sorgusuyla doğrulanır. |
 | Canlı testler | `pytest -m live`, varsayılan çalıştırmada atlanır (ücretli). |
 
+## 2026-11-07 — Aşama 9 teknik kararları (paketleme ve kurulum)
+
+| Konu | Karar |
+|---|---|
+| Paketleme | PyInstaller, tek klasör (onedir), konsolsuz. Tek dosya (onefile) değil: her açılışta geçici klasöre açma yavaş ve antivirüslere takılıyor. |
+| Kurulum | Inno Setup 6, kullanıcıya özel (`PrivilegesRequired=lowest`), `%LOCALAPPDATA%\Programs\JARVIS`. Sabit AppId ile yükseltme. Türkçe arayüz. |
+| Kaldırma | Program dosyaları ve başlangıç kaydı her zaman silinir; kullanıcı verisi yalnızca kullanıcı "Evet" derse (varsayılan: Hayır). |
+| Windows ile başlatma | `HKCU\...\Run` (yönetici izni yok). Gerçek durumun kaynağı kayıt defteri; ayar açılışta eşitlenir. Görev Yöneticisi'nin "devre dışı" işareti dikkate alınır. |
+| Tek örnek | `QLockFile` (veri klasöründe) + `QLocalServer`. İkinci açılış çalışan pencereyi öne getirir. Kurulum/kaldırma çalışan JARVIS'i `--kapat` ile temizce kapatır. |
+| Bildirim alanı | Simge her zaman var (sistem destekliyorsa). Pencereyi kapatmak varsayılan olarak uygulamayı kapatır; "kapatınca bildirim alanına in" ayarla açılır. |
+| Simge | `scripts/make_icon.py` ile QPainter'la çizilir (Pillow gerekmez), 16–256 px çok boyutlu ICO. |
+| CI | GitHub Actions: Windows'ta test, PyInstaller, kurulum, sessiz kurma/yükseltme/kaldırma doğrulaması; Linux'ta test. Ses modelleri `actions/cache` ile önbellekte. |
+
 ## Güncel aşama sırası
 
 0. Ortam ve mimari ✅

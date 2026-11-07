@@ -280,6 +280,10 @@ class MainWindow(QMainWindow):
     def __init__(self, assistant: Assistant, fonts: Fonts, developer: bool = False) -> None:
         super().__init__()
         self.assistant = assistant
+        # Aşama 9: bildirim alanı (varsa TrayController atar) ve kapanış bayrakları
+        self.tray = None
+        self._quitting = False
+        self._close_emitted = False
         self.setWindowTitle(f"JARVIS {__version__}")
         self.resize(1440, 900)
         self.setMinimumSize(1000, 680)
@@ -289,7 +293,7 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
 
-        self.sidebar = Sidebar(self.navigate, self.close)
+        self.sidebar = Sidebar(self.navigate, self.quit_app)
         self.stack = QStackedWidget()
         self.panel = PanelPage(fonts, assistant)
         self.pages: dict[str, QWidget] = {"panel": self.panel}
@@ -380,7 +384,34 @@ class MainWindow(QMainWindow):
             sm.transition(new, detail)
         self._demo_index += 1
 
+    # ---------- Aşama 9: bildirim alanı, tek örnek, tamamen kapatma ----------
+    def bring_to_front(self) -> None:
+        """Gizli ya da simge durumundaki pencereyi gösterip öne getirir (ikinci açılış, tepsi)."""
+        state = self.windowState() & ~Qt.WindowState.WindowMinimized
+        self.show()
+        self.setWindowState(state | Qt.WindowState.WindowActive)
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self) -> None:
+        """Tamamen kapat: "kapatınca bildirim alanına in" ayarına bakmadan temiz kapanışı başlatır."""
+        self._quitting = True
+        self.close()
+        if not self._close_emitted:  # gizli pencerede kapanma olayı gelmeyebilir
+            self._emit_close()
+
+    def _emit_close(self) -> None:
+        self._close_emitted = True
+        self.close_requested.emit()
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._quitting and self.tray is not None and self.assistant.settings.ui.close_to_tray:
+            event.ignore()
+            self.hide()
+            self.tray.notify_hidden()
+            log.info("Pencere bildirim alanına indirildi")
+            return
         log.info("Pencere kapatılıyor")
         event.accept()
-        self.close_requested.emit()
+        if not self._close_emitted:
+            self._emit_close()
