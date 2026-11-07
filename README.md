@@ -2,8 +2,8 @@
 
 Türkçe konuşan, Claude API ile düşünen, Windows'u güvenli şekilde yönetebilen kişisel masaüstü asistanı.
 
-> **Durum:** Aşama 1 (temel iskelet) tamamlandı. Yazılı sohbet Aşama 2'de, sesli konuşma Aşama 3'te geliyor.
-> Kararlar için `docs/KARARLAR.md`, testler için `docs/ASAMA1-TEST-RAPORU.md`.
+> **Durum:** Aşama 2 (Claude ile yazılı sohbet, model seçimi, maliyet ve bütçe takibi) tamamlandı. Sesli konuşma Aşama 3'te geliyor.
+> Kararlar için `docs/KARARLAR.md`, testler için `docs/ASAMA1-TEST-RAPORU.md` ve `docs/ASAMA2-TEST-RAPORU.md`.
 
 ## Kurulum (Windows)
 
@@ -23,9 +23,16 @@ Seçenekler:
 |---|---|
 | `python -m jarvis --debug` | Logları konsola da yazar |
 | `python -m jarvis --gelistirici` | F8 ile durum animasyonlarını sırayla gösterir, F9 deneme hatası üretir |
-| `python -m pytest` | Tüm testleri çalıştırır |
+| `python -m pytest` | Tüm ücretsiz testleri çalıştırır |
+| `python -m pytest -m live -v -s` | Gerçek Claude API testleri (ücretli, yaklaşık $0,05–0,10; önce anahtarı gir) |
 
 Kısayol: **Ctrl+Shift+M** mikrofonu anında kapatır ya da açar.
+
+## Claude API anahtarı
+
+JARVIS'i aç, **Ayarlar > Claude bağlantısı > Anahtarı gir**. Anahtar önce Anthropic'e ücretsiz bir istekle doğrulanır,
+sonra Windows Credential Manager'a kaydedilir. Anahtarı [Anthropic Console](https://platform.claude.com) > API Keys'ten alabilirsin.
+Claude Pro/Max aboneliği API kullanımını kapsamaz; API ayrı faturalanır.
 
 ## Dosyalar nerede?
 

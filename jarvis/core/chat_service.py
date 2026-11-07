@@ -7,6 +7,7 @@ Ses motoru (Aşama 3) da aynı `send()` yöntemini kullanacak.
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 from collections.abc import Callable
 from concurrent.futures import Executor
@@ -102,6 +103,8 @@ class ChatService:
     # ---------- anahtar ve bağlantı ----------
     async def start(self) -> None:
         await self.publish_usage()
+        # SDK'yı arka plan thread'inde önceden yükle: arayüz thread'i beklemesin
+        await self._run(importlib.import_module, "anthropic")
         await self.reload_client(verify=True)
 
     async def _close_client(self) -> None:

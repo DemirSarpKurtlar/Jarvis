@@ -27,11 +27,26 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 | Fontlar | Değişken fontlardan üretilmiş sabit ağırlıklar (Qt uyumluluğu için). |
 | Görselleştirici performansı | Sabit katmanlar önbellekte. Beklemede 8 fps, etkin durumlarda 30 fps, pencere gizliyken 0. |
 
+## 2026-11-07 — Aşama 2 teknik kararları
+
+| Konu | Karar |
+|---|---|
+| SDK | Resmi `anthropic` Python SDK 2.x, async istemci, akışlı yanıt. |
+| API adresi | Her zaman açıkça `https://api.anthropic.com`; ortam değişkeni ile yönlendirilemez. |
+| Effort | Haiku `low`, Sonnet `medium`, Opus `high` (model kaydında). |
+| Yedek model | Sonnet 5.5 ve Opus 5.5'ta `fallbacks: "default"`; Haiku 5.5'ta desteklenmediği için yok. |
+| Web araması | `web_search_20260209`, istek başına en çok 3 arama, konum TR. Yalnızca Sonnet/Opus'ta. |
+| Konuşma geçmişi | Son 16 mesaj, yalnızca metin (düşünme blokları geri gönderilmez, gerekçe test raporunda). |
+| Önbellek | Sabit sistem istemi `cache_control` ile; tarih ayrı blokta, önbelleği bozmaz. |
+| Bütçe | Varsayılan günlük $0,50, aylık $5,00, %80'de uyarı, dolunca Haiku. Ayarlar'dan değişir. |
+| Anahtar | Windows Credential Manager. Kaydetmeden önce ücretsiz model sorgusuyla doğrulanır. |
+| Canlı testler | `pytest -m live`, varsayılan çalıştırmada atlanır (ücretli). |
+
 ## Güncel aşama sırası
 
 0. Ortam ve mimari ✅
 1. Temel: yapı, ayarlar, loglama, PySide6 iskeleti, durum makinesi ✅ (Linux'ta test edildi, Windows doğrulaması bekliyor: `docs/ASAMA1-TEST-RAPORU.md`)
-2. Claude entegrasyonu: metin sohbeti, yönlendirici, token ve maliyet takibi, bütçe
+2. Claude entegrasyonu: metin sohbeti, yönlendirici, token ve maliyet takibi, bütçe ✅ (sahte API ile test edildi; canlı API testi Windows'ta bekliyor: `docs/ASAMA2-TEST-RAPORU.md`)
 3. Ses motoru: uyandırma kelimesi, STT, TTS, sözü kesme, bekleme
 4. Hafıza
 5. Windows araçları ve izin sistemi

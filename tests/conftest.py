@@ -32,14 +32,19 @@ class MemoryKeyring(KeyringBackend):
 
 
 @pytest.fixture(autouse=True)
-def jarvis_home(tmp_path, monkeypatch):
+def jarvis_home(tmp_path, monkeypatch, request):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis_home"))
-    monkeypatch.delenv("JARVIS_ANTHROPIC_API_KEY", raising=False)
+    if not request.node.get_closest_marker("live"):
+        monkeypatch.delenv("JARVIS_ANTHROPIC_API_KEY", raising=False)
     return tmp_path / "jarvis_home"
 
 
 @pytest.fixture(autouse=True)
-def memory_keyring():
+def memory_keyring(request):
+    if request.node.get_closest_marker("live"):
+        # Canlı testler gerçek anahtar deposundaki (Windows Credential Manager) anahtarı kullanır
+        yield None
+        return
     previous = keyring.get_keyring()
     kr = MemoryKeyring()
     keyring.set_keyring(kr)

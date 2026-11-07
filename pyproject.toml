@@ -37,3 +37,6 @@ jarvis = ["assets/fonts/*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 qt_api = "pyside6"
+# Canlı (ücretli) API testleri varsayılan olarak çalışmaz: `python -m pytest -m live`
+addopts = "-m 'not live'"
+markers = ["live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)"]

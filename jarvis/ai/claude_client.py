@@ -20,8 +20,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
-import anthropic
-
 from jarvis.ai.model_registry import ModelSpec, TokenUsage, spec_for
 from jarvis.ai.usage import CostLine
 from jarvis.core.errors import JarvisError
@@ -59,8 +57,16 @@ class ClaudeError(JarvisError):
         return self.kind in (ErrorKind.CONNECTION, ErrorKind.TIMEOUT)
 
 
+def _sdk():  # noqa: ANN202
+    """SDK'yı ilk kullanımda yükler (~600 ms): pencere açılışını geciktirmesin."""
+    import anthropic
+
+    return anthropic
+
+
 def map_error(exc: Exception, model: str = "") -> ClaudeError:
     """SDK hatasını türüne göre sınıflandırır (en özelden en genele)."""
+    anthropic = _sdk()
     rid = getattr(getattr(exc, "response", None), "headers", {}).get("request-id", "") if hasattr(exc, "response") else ""
     tech = f"{exc.__class__.__name__}: {getattr(exc, 'message', exc)} {rid}".strip()
     if isinstance(exc, anthropic.AuthenticationError):
@@ -158,6 +164,7 @@ def _extract(message) -> tuple[str, list[tuple[str, str]]]:  # noqa: ANN001
 class ClaudeClient:
     def __init__(self, api_key: str, base_url: str = DEFAULT_BASE_URL, max_retries: int = 2,
                  timeout_s: float = 90.0, http_client=None) -> None:  # noqa: ANN001
+        anthropic = _sdk()
         kwargs = {}
         if http_client is not None:  # yalnızca testler (sahte HTTP katmanı) için
             kwargs["http_client"] = http_client
@@ -205,6 +212,7 @@ class ClaudeClient:
             betas.append(FALLBACK_BETA)
             params["fallbacks"] = "default"
 
+        anthropic = _sdk()
         all_lines: list[CostLine] = []
         fallback_used = False
         text_parts: list[str] = []
