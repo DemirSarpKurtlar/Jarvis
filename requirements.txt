@@ -7,3 +7,11 @@ platformdirs>=4.2        # 4.14.5
 nvidia-ml-py>=12.535     # 13.615.71 (NVIDIA GPU sıcaklığı; kart yoksa sorun çıkarmaz)
 anthropic>=2.6,<3       # 2.6.0 (resmi Claude SDK)
 keyring>=25             # 25.7.0 (Windows Credential Manager)
+# --- Aşama 5: Windows araçları ---
+send2trash>=1.8         # 2.1.0 (silinen dosyalar Geri Dönüşüm Kutusu'na)
+pypdf>=4.0              # 7.0.0 (PDF okuma)
+python-docx>=1.1        # 1.2.0 (Word belgesi okuma/oluşturma; lxml gerektirir)
+pywin32>=306; sys_platform == "win32"     # 312 (pencereler, COM, olay günlüğü; py3.12 win_amd64 tekerleği var)
+comtypes>=1.4; sys_platform == "win32"    # 1.4.17 (Core Audio için)
+pycaw>=20240316; sys_platform == "win32"  # 20260927 (sistem ses düzeyi)
+# --- Aşama 5 sonu ---

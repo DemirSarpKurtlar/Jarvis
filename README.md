@@ -25,6 +25,7 @@ Seçenekler:
 | `python -m jarvis --gelistirici` | F8 ile durum animasyonlarını sırayla gösterir, F9 deneme hatası üretir |
 | `python -m pytest` | Tüm ücretsiz testleri çalıştırır |
 | `python -m pytest -m live -v -s` | Gerçek Claude API testleri (ücretli, yaklaşık $0,05–0,10; önce anahtarı gir) |
+| `python -m pytest -m windows -v` | Gerçek Windows araç testleri (Not Defteri'ni açıp kapatır, ses düzeyini okuyup geri yükler) |
 
 Kısayol: **Ctrl+Shift+M** mikrofonu anında kapatır ya da açar.
 
@@ -56,6 +57,8 @@ jarvis/
   config/             ayarlar (pydantic, atomik kayıt, bozuk dosya yedeği)
   core/               durum makinesi, olay veriyolu, hata yakalama, loglama, asistan çekirdeği
   system/             gerçek sistem verisi (CPU, RAM, disk, ağ, NVIDIA GPU)
+  tools/              Windows araçları (izin listesi, strict şema) ve yerel Türkçe komutlar   [Aşama 5]
+  security/           izinler, dosya korumalı alanı, denetim kaydı, anahtar deposu           [Aşama 5]
   interface/          PySide6 arayüzü: tema, reaktör görselleştirici, paneller
   assets/fonts/       Saira ve IBM Plex Sans (OFL)
 design/taslaklar/     onaylanan arayüz taslağı

@@ -58,6 +58,25 @@ MIGRATIONS: list[str] = [
     );
     CREATE INDEX idx_messages_conv ON messages(conversation_id);
     """,
+    # --- Aşama 5 başlangıcı (araçlar ve güvenlik) ---
+    # 3: denetim kaydı (birleştirmede hafıza geçişinden sonra gelecek; IF NOT EXISTS sıra değişimine dayanıklı)
+    """
+    CREATE TABLE IF NOT EXISTS audit_log (
+        id INTEGER PRIMARY KEY,
+        ts_utc TEXT NOT NULL,
+        source TEXT NOT NULL,             -- claude / yerel / arayuz / zamanlayici
+        tool TEXT NOT NULL,
+        permission TEXT NOT NULL,         -- okuma / güvenli / onaylı / yasak
+        decision TEXT NOT NULL,           -- izin / onaylandi / reddedildi / yasak / gecersiz / desteklenmiyor
+        ok INTEGER NOT NULL,
+        args_json TEXT NOT NULL,          -- gizli alanlar maskelenmiş, kısaltılmış
+        summary TEXT,
+        error TEXT,
+        duration_ms INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts_utc);
+    """,
+    # --- Aşama 5 sonu ---
 ]
 
 

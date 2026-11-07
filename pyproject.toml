@@ -17,6 +17,13 @@ dependencies = [
     "nvidia-ml-py>=12.535",
     "anthropic>=2.6,<3",
     "keyring>=25",
+    # Aşama 5: Windows araçları
+    "send2trash>=1.8",
+    "pypdf>=4.0",
+    "python-docx>=1.1",
+    "pywin32>=306; sys_platform == 'win32'",
+    "comtypes>=1.4; sys_platform == 'win32'",
+    "pycaw>=20240316; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]
@@ -39,4 +46,7 @@ testpaths = ["tests"]
 qt_api = "pyside6"
 # Canlı (ücretli) API testleri varsayılan olarak çalışmaz: `python -m pytest -m live`
 addopts = "-m 'not live'"
-markers = ["live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)"]
+markers = [
+    "live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)",
+    "windows: yalnızca gerçek Windows'ta çalışır (diğer sistemlerde otomatik atlanır)",
+]

@@ -35,6 +35,10 @@ class Topics:
     CLAUDE_STATUS = "claude.status"            # payload: ClaudeStatus
     CONFIRM_REQUEST = "app.confirm"            # payload: ConfirmRequest
     APP_SHUTDOWN = "app.shutdown"              # payload: None
+    # --- Aşama 5: araçlar ---
+    TOOL_CONFIRM = "tool.confirm"              # payload: ToolConfirmRequest (security/permission_manager.py)
+    TOOL_EXECUTED = "tool.executed"            # payload: ToolResult
+    # --- Aşama 5 sonu ---
 
 
 class EventBus:
@@ -53,6 +57,9 @@ class EventBus:
                 self._handlers[topic].remove(handler)
 
         return unsubscribe
+
+    def has_subscribers(self, topic: str) -> bool:
+        return bool(self._handlers.get(topic))
 
     def publish(self, topic: str, payload: Any = None) -> None:
         for handler in list(self._handlers.get(topic, [])):

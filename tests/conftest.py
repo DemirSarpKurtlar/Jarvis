@@ -1,6 +1,7 @@
 """Ortak test ayarları: ekransız Qt, her test için ayrı JARVIS_HOME ve bellekte anahtar deposu."""
 
 import os
+import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -50,3 +51,14 @@ def memory_keyring(request):
     keyring.set_keyring(kr)
     yield kr
     keyring.set_keyring(previous)
+
+
+# --- Aşama 5: Windows'a özgü testler yalnızca Windows'ta çalışır ---
+def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ANN201
+    if sys.platform == "win32":
+        return
+    skip = pytest.mark.skip(reason="yalnızca Windows'ta çalışır")
+    for item in items:
+        if item.get_closest_marker("windows"):
+            item.add_marker(skip)
+# --- Aşama 5 sonu ---
