@@ -35,6 +35,9 @@ class Topics:
     CLAUDE_STATUS = "claude.status"            # payload: ClaudeStatus
     CONFIRM_REQUEST = "app.confirm"            # payload: ConfirmRequest
     APP_SHUTDOWN = "app.shutdown"              # payload: None
+    # Aşama 4: hafıza
+    MEMORY_CHANGED = "memory.changed"          # payload: None (kayıtlar değişti)
+    MEMORY_PENDING = "memory.pending"          # payload: Memory (kullanıcı onayı bekleyen yeni kayıt)
 
 
 class EventBus:

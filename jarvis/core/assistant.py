@@ -20,6 +20,7 @@ from jarvis.core.errors import add_error_listener, remove_error_listener
 from jarvis.core.events import EventBus, Topics
 from jarvis.core.state import AssistantState, StateMachine
 from jarvis.ai.claude_client import ClaudeClient
+from jarvis.memory.service import MemoryService
 from jarvis.paths import AppPaths
 from jarvis.security.credentials import CredentialStore
 from jarvis.storage.database import Database
@@ -54,6 +55,10 @@ class Assistant:
         self.db = Database((data_dir or AppPaths.resolve().data_dir) / "jarvis.db")
         self.chat = ChatService(store, self.bus, self.state, self.db, self._executor,
                                 credentials, client_factory)
+        # Aşama 4: uzun süreli hafıza (sohbet servisine isteğe bağlı yardımcı olarak bağlanır)
+        self.memory = MemoryService(store, self.bus, self.db, self._executor, self.chat.tracker,
+                                    lambda: self.chat._client)
+        self.chat.memory = self.memory
 
     @property
     def settings(self) -> Settings:
@@ -68,6 +73,7 @@ class Assistant:
         self._tasks.append(asyncio.create_task(self._monitor_loop(), name="system-monitor"))
         # Anahtar doğrulaması ağ beklerken arayüz açılışını geciktirmesin
         self._tasks.append(asyncio.create_task(self.chat.start(), name="claude-start"))
+        self._tasks.append(asyncio.create_task(self.memory.start(), name="memory-start"))  # Aşama 4
         self.running = True
         log.info("Asistan çekirdeği başlatıldı")
 

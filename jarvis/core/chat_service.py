@@ -82,6 +82,7 @@ class ChatService:
         self.status_detail = ""
         self.busy = False
         self._client: ClaudeClient | None = None
+        self.memory = None  # Aşama 4: isteğe bağlı MemoryService (Assistant bağlar)
 
     @property
     def registry(self) -> ModelRegistry:
@@ -106,6 +107,8 @@ class ChatService:
         # SDK'yı arka plan thread'inde önceden yükle: arayüz thread'i beklemesin
         await self._run(importlib.import_module, "anthropic")
         await self.reload_client(verify=True)
+        if self.memory is not None:  # Aşama 4: önceki oturumdan kalan konuşmaları özetle
+            self.memory.schedule_maintenance(self.conversation.conversation_id)
 
     async def _close_client(self) -> None:
         if self._client is not None:
@@ -207,13 +210,16 @@ class ChatService:
 
         await self._run(self.conversation.log_user, text)
         messages = self.conversation.api_messages(text)
+        memory_text = await self._memory_context(text)  # Aşama 4
+        used = len(self.memory.last_used) if self.memory is not None and memory_text else 0
         self.state.transition(AssistantState.PROCESSING,
-                              f"{spec.display_name} ile düşünüyorum" + (", web'de arıyorum" if web else ""))
+                              f"{spec.display_name} ile düşünüyorum" + (", web'de arıyorum" if web else "")
+                              + (f", hafızadan {used} kayıt kullanılıyor" if used else ""))
         self.bus.publish(Topics.CHAT_STARTED, ChatStarted(text, spec.display_name, r.reason, web, note))
 
         try:
             result = await self._client.chat(  # type: ignore[union-attr]
-                spec, system_blocks(), messages, web_search=web,
+                spec, system_blocks(extra=memory_text), messages, web_search=web,
                 on_text=lambda t: self.bus.publish(Topics.CHAT_DELTA, t),
             )
         except ClaudeError as e:
@@ -243,6 +249,8 @@ class ChatService:
             if result.stop_reason == "max_tokens":
                 note = ((note + " ") if note else "") + "Yanıt uzunluk sınırına ulaştığı için kesildi."
             await self._run(self.conversation.commit_exchange, text, answer, result.model_served, cost)
+            if self.memory is not None:  # Aşama 4: arka planda; cevabı geciktirmez
+                self.memory.after_exchange(self.conversation.conversation_id, text, answer)
             done = ChatDone(answer, served_name, cost, result.citations, fallback_used=result.fallback_used,
                             note=note)
         self._set_status(ClaudeStatus.CONNECTED)
@@ -251,5 +259,17 @@ class ChatService:
         self.bus.publish(Topics.CHAT_DONE, done)
         return done
 
+    # ---- Aşama 4: hafıza ----
+    async def _memory_context(self, text: str) -> str | None:
+        if self.memory is None:
+            return None
+        try:
+            return await self.memory.context_for(text, self.conversation.conversation_id)
+        except Exception:  # noqa: BLE001
+            log.exception("Hafıza bağlamı hazırlanamadı; istek hafızasız gönderiliyor")
+            return None
+
     async def shutdown(self) -> None:
+        if self.memory is not None:
+            await self.memory.shutdown(self.conversation.conversation_id)
         await self._close_client()

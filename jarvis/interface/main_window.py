@@ -31,6 +31,7 @@ from jarvis.interface.chat_view import ChatView
 from jarvis.interface.components import icon
 from jarvis.interface.conversations_view import ConversationsView
 from jarvis.interface.dialogs import ask_budget
+from jarvis.interface.memory_view import MemoryView
 from jarvis.interface.settings_view import SettingsView
 from jarvis.interface.telemetry_panel import TelemetryPanel
 from jarvis.interface.theme import C, Fonts
@@ -49,7 +50,6 @@ NAV_ITEMS = [
 
 # Henüz yapılmamış bölümler: sahte içerik yerine dürüst bir açıklama gösterilir
 COMING = {
-    "hafiza": ("Hafıza", "Hatırladıklarımı görüp düzenleyebileceğin ve silebileceğin ekran Aşama 4'te geliyor."),
     "sistem": ("Sistem", "Ayrıntılı işlem ve donanım ekranı Aşama 5'te geliyor. Özet bilgiler sağdaki şeritte."),
     "otomasyon": ("Otomasyon", "Rutinler ve zamanlanmış görevler Aşama 6'da geliyor."),
 }
@@ -302,6 +302,8 @@ class MainWindow(QMainWindow):
         self.settings_view = SettingsView(assistant)
         self.pages["konusmalar"] = self.conversations
         self.pages["ayarlar"] = self.settings_view
+        self.memory_view = MemoryView(assistant)  # Aşama 4
+        self.pages["hafiza"] = self.memory_view
         for key, (title, text) in COMING.items():
             self.pages[key] = ComingSoonPage(title, text)
         for key in ("konusmalar", "hafiza", "sistem", "otomasyon", "ayarlar"):
@@ -329,6 +331,7 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.CLAUDE_STATUS, self._on_claude_status)
         bus.subscribe(Topics.SETTINGS_CHANGED, self.telemetry.apply_settings)
         bus.subscribe(Topics.CONFIRM_REQUEST, self._on_confirm)
+        bus.subscribe(Topics.MEMORY_PENDING, self._on_memory_pending)  # Aşama 4
 
         if assistant.store.load_warning:
             self.panel.banner.show_message(assistant.store.load_warning, "uyari")
@@ -353,6 +356,11 @@ class MainWindow(QMainWindow):
             self.panel.banner.show_message(chat.status_detail, "hata", "Ayarlar", lambda: self.navigate("ayarlar"))
         elif chat.status is ClaudeStatus.CONNECTED and self.panel.banner.action.text() == "Anahtarı gir":
             self.panel.banner.hide()
+
+    def _on_memory_pending(self, _memory) -> None:  # noqa: ANN001  (Aşama 4)
+        self.panel.banner.show_message(
+            "Bir bilgiyi hafızaya kaydetmeden önce onayını bekliyorum.", "uyari",
+            "Hafıza", lambda: (self.navigate("hafiza"), self.panel.banner.hide()))
 
     def open_key_dialog(self) -> None:
         self.navigate("ayarlar")

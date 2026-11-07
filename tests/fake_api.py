@@ -51,6 +51,18 @@ def text_stream(text_chunks: list[str], model: str = "claude-haiku-5-5", stop_re
     return sse(*events)
 
 
+def json_message(data: dict | None, model: str = "claude-haiku-5-5", stop_reason: str = "end_turn",
+                 usage: dict | None = None, raw_text: str | None = None) -> tuple[int, dict]:
+    """Akışsız `messages.create` yanıtı (yapılandırılmış JSON çıktısı). FakeAPI'ye (200, gövde) olarak verilir."""
+    u = {"input_tokens": 1500, "output_tokens": 120, "cache_creation_input_tokens": 0,
+         "cache_read_input_tokens": 0}
+    u.update(usage or {})
+    text = raw_text if raw_text is not None else json.dumps(data, ensure_ascii=False)
+    return 200, {"id": "msg_json", "type": "message", "role": "assistant", "model": model,
+                 "content": [{"type": "text", "text": text}] if text else [],
+                 "stop_reason": stop_reason, "stop_sequence": None, "usage": u}
+
+
 @dataclass
 class FakeAPI:
     """Sırayla verilen yanıtları döndürür, gelen istekleri kaydeder."""
