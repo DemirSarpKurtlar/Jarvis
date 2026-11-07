@@ -19,3 +19,6 @@ settings.json
 # Editör
 .vscode/
 .idea/
+
+# Claude Code çalışma kopyaları
+.claude/
