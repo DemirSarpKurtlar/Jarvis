@@ -202,3 +202,149 @@ def test_full_app_start_and_shutdown(jarvis_home):
     assert "Asistan kapatıldı" in log and "JARVIS kapatıldı" in log
     assert "Traceback" not in log and " ERROR " not in log and "CRITICAL" not in log
     assert elapsed < 20
+
+
+# ---------------- Aşama 2: sohbet arayüzü ----------------
+from tests.fake_api import FakeAPI, text_stream  # noqa: E402
+from jarvis.core.chat_service import ClaudeStatus  # noqa: E402
+from jarvis.security.credentials import CredentialStore  # noqa: E402
+
+KEY = "sk-ant-api03-" + "U" * 40
+
+
+def make_chat_ui(loop, api, with_key=True):
+    fonts = theme.load_fonts()
+    store = SettingsStore(AppPaths.resolve().settings_file)
+    store.load()
+    if with_key:
+        CredentialStore().set_anthropic_key(KEY)
+    a = Assistant(store, sample_interval_s=0.5,
+                  client_factory=lambda key, max_retries=0: api.client(key, max_retries=0))
+    w = MainWindow(a, fonts)
+    w.show()
+    return a, w
+
+
+async def wait_for(cond, timeout=5.0):
+    t = time.perf_counter()
+    while not cond():
+        if time.perf_counter() - t > timeout:
+            raise AssertionError("koşul zaman aşımına uğradı")
+        await asyncio.sleep(0.02)
+
+
+def test_typing_sends_and_streams_answer(qapp, loop):
+    api = FakeAPI([text_stream(["İstanbul'un ", "nüfusu yaklaşık 16 milyon."])])
+    a, w = make_chat_ui(loop, api)
+
+    async def go():
+        await a.start()
+        await wait_for(lambda: a.chat.status is ClaudeStatus.CONNECTED)
+        w.panel.input.setText("İstanbul'un nüfusu kaç")
+        w.panel.input.returnPressed.emit()
+        await asyncio.sleep(0)
+        assert not w.panel.input.isEnabled()        # cevap gelirken kilitli
+        await wait_for(lambda: w.panel.input.isEnabled())
+        await a.shutdown()
+
+    loop.run_until_complete(go())
+    assert w.panel.chat.user_text.text() == "İstanbul'un nüfusu kaç"
+    assert w.panel.chat.jarvis_text.text() == "İstanbul'un nüfusu yaklaşık 16 milyon."
+    assert "Haiku 5.5" in w.panel.chat.meta.text() and "$0," in w.panel.chat.meta.text()
+    assert w.telemetry.month.value.text().startswith("$0,")
+    assert "Haiku" in w.telemetry.models.legend.text()
+    assert w.panel.claude_pill.text() == "Claude: bağlı"
+    assert w.panel.input.text() == ""
+
+
+def test_no_key_banner_offers_key_entry(qapp, loop):
+    a, w = make_chat_ui(loop, FakeAPI(), with_key=False)
+
+    async def go():
+        await a.start()
+        await wait_for(lambda: a.chat.status is ClaudeStatus.NO_KEY)
+        await asyncio.sleep(0.05)
+        await a.shutdown()
+
+    loop.run_until_complete(go())
+    assert w.panel.banner.isVisible()
+    assert w.panel.banner.action.text() == "Anahtarı gir"
+    assert w.telemetry.claude_status.value.text().startswith("Anahtar girilmedi")
+
+
+def test_key_dialog_saves_verified_key(qapp, loop, memory_keyring):
+    a, w = make_chat_ui(loop, FakeAPI(), with_key=False)
+
+    async def go():
+        await a.start()
+        await wait_for(lambda: a.chat.status is ClaudeStatus.NO_KEY)
+        w.open_key_dialog()
+        dlg = w.settings_view._dialog
+        assert dlg.edit.echoMode() == dlg.edit.EchoMode.Password   # anahtar ekranda gizli
+        dlg.edit.setText(KEY)
+        dlg.ok.click()
+        await wait_for(lambda: a.chat.status is ClaudeStatus.CONNECTED)
+        await a.shutdown()
+
+    loop.run_until_complete(go())
+    assert list(memory_keyring.data.values()) == [KEY]
+    assert w.settings_view.key_btn.text() == "Anahtarı değiştir"
+
+
+def test_settings_view_changes_persist(qapp, loop):
+    a, w = make_chat_ui(loop, FakeAPI())
+    sv = w.settings_view
+    sv.model.setCurrentIndex(3)       # Opus
+    sv.monthly.setValue(12.5)
+    sv.policy.setCurrentIndex(2)      # durdur
+    sv.web.setChecked(False)
+    reread = SettingsStore(a.store.path).load()
+    assert reread.ai.preferred_model == "advanced"
+    assert reread.budget.monthly_limit_usd == 12.5
+    assert reread.budget.on_limit == "block"
+    assert reread.ai.web_search_enabled is False
+    loop.run_until_complete(a.shutdown()) if a.running else a.db.close()
+
+
+def test_conversations_page_lists_real_history(qapp, loop):
+    api = FakeAPI([text_stream(["Selam Demir!"])])
+    a, w = make_chat_ui(loop, api)
+
+    async def go():
+        await a.start()
+        await wait_for(lambda: a.chat.status is ClaudeStatus.CONNECTED)
+        await a.chat.send("Selam, ben Demir")
+        w.navigate("konusmalar")
+        await asyncio.sleep(0.05)
+        await a.shutdown()
+
+    loop.run_until_complete(go())
+    cv = w.conversations
+    assert cv.list.count() == 1 and "Selam, ben Demir" in cv.list.item(0).text()
+    assert "Selam Demir!" in cv.view.toPlainText()
+
+
+def test_budget_ask_dialog_answers_future(qapp, loop):
+    from PySide6.QtWidgets import QMessageBox
+    api = FakeAPI([text_stream(["tamam"])])
+    a, w = make_chat_ui(loop, api)
+    a.settings.budget.on_limit = "ask"
+    a.settings.budget.daily_limit_usd = 0.000001
+
+    async def go():
+        await a.start()
+        await wait_for(lambda: a.chat.status is ClaudeStatus.CONNECTED)
+        a.db.execute("INSERT INTO usage (ts_utc, local_day, local_month, model, tier, input_tokens, output_tokens,"
+                     " cache_creation_tokens, cache_read_tokens, web_search_requests, cost_usd)"
+                     " VALUES ('x', strftime('%Y-%m-%d','now','localtime'), strftime('%Y-%m','now','localtime'),"
+                     " 'claude-haiku-5-5','light',0,0,0,0,0,1.0)")
+        task = a.send_text("selam")
+        await wait_for(lambda: getattr(w, "_confirm_box", None) is not None and w._confirm_box.isVisible())
+        box = w._confirm_box
+        yes = [b for b in box.buttons() if box.buttonRole(b) == QMessageBox.ButtonRole.AcceptRole][0]
+        yes.click()
+        await task
+        await a.shutdown()
+
+    loop.run_until_complete(go())
+    assert w.panel.chat.jarvis_text.text() == "tamam"

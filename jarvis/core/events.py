@@ -26,6 +26,14 @@ class Topics:
     SETTINGS_CHANGED = "settings.changed"      # payload: Settings
     MICROPHONE_TOGGLED = "voice.microphone"    # payload: bool (açık mı)
     APP_ERROR = "app.error"                    # payload: str (kullanıcı mesajı)
+    CHAT_STARTED = "chat.started"              # payload: ChatStarted
+    CHAT_DELTA = "chat.delta"                  # payload: str (yeni metin parçası)
+    CHAT_DONE = "chat.done"                    # payload: ChatDone
+    CHAT_FAILED = "chat.failed"                # payload: str (kullanıcı mesajı)
+    NOTICE = "app.notice"                      # payload: str (bilgi/uyarı, hata değil)
+    USAGE_UPDATED = "usage.updated"            # payload: BudgetStatus
+    CLAUDE_STATUS = "claude.status"            # payload: ClaudeStatus
+    CONFIRM_REQUEST = "app.confirm"            # payload: ConfirmRequest
     APP_SHUTDOWN = "app.shutdown"              # payload: None
 
 

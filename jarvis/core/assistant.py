@@ -11,12 +11,18 @@ import asyncio
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 from jarvis.config.constants import SYSTEM_SAMPLE_INTERVAL_S
 from jarvis.config.settings import Settings, SettingsStore
+from jarvis.core.chat_service import ChatService, ClientFactory
 from jarvis.core.errors import add_error_listener, remove_error_listener
 from jarvis.core.events import EventBus, Topics
 from jarvis.core.state import AssistantState, StateMachine
+from jarvis.ai.claude_client import ClaudeClient
+from jarvis.paths import AppPaths
+from jarvis.security.credentials import CredentialStore
+from jarvis.storage.database import Database
 from jarvis.system.monitor import SystemMonitor
 
 log = logging.getLogger(__name__)
@@ -29,6 +35,9 @@ class Assistant:
         bus: EventBus | None = None,
         monitor_factory: Callable[[], SystemMonitor] = SystemMonitor,
         sample_interval_s: float = SYSTEM_SAMPLE_INTERVAL_S,
+        data_dir: Path | None = None,
+        credentials: CredentialStore | None = None,
+        client_factory: ClientFactory = ClaudeClient,
     ) -> None:
         self.store = store
         self.bus = bus or EventBus()
@@ -42,6 +51,9 @@ class Assistant:
         self._tasks: list[asyncio.Task] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self.running = False
+        self.db = Database((data_dir or AppPaths.resolve().data_dir) / "jarvis.db")
+        self.chat = ChatService(store, self.bus, self.state, self.db, self._executor,
+                                credentials, client_factory)
 
     @property
     def settings(self) -> Settings:
@@ -54,8 +66,28 @@ class Assistant:
         # NVML başlatma sürücüye bağlı olarak yavaş olabilir: arayüzü bekletmesin
         self._monitor = await self._loop.run_in_executor(self._executor, self._monitor_factory)
         self._tasks.append(asyncio.create_task(self._monitor_loop(), name="system-monitor"))
+        # Anahtar doğrulaması ağ beklerken arayüz açılışını geciktirmesin
+        self._tasks.append(asyncio.create_task(self.chat.start(), name="claude-start"))
         self.running = True
         log.info("Asistan çekirdeği başlatıldı")
+
+    def spawn(self, coro, name: str = "gorev") -> asyncio.Task:  # noqa: ANN001
+        """Arayüzden başlatılan arka plan işi. Kapanışta iptal edilir, hatası loglanır."""
+        task = asyncio.ensure_future(coro)
+        task.set_name(name)
+        self._tasks.append(task)
+
+        def done(t: asyncio.Task) -> None:
+            if t in self._tasks:
+                self._tasks.remove(t)
+            if not t.cancelled() and t.exception() is not None:
+                log.error("Arka plan görevi başarısız (%s)", name, exc_info=t.exception())
+        task.add_done_callback(done)
+        return task
+
+    def send_text(self, text: str) -> asyncio.Task:
+        """Arayüzden gelen yazılı mesajı arka planda işler."""
+        return self.spawn(self.chat.send(text), "chat-send")
 
     async def _monitor_loop(self) -> None:
         assert self._loop is not None and self._monitor is not None
@@ -110,6 +142,7 @@ class Assistant:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        await self.chat.shutdown()
         if self._monitor is not None:
             self._monitor.close()
         self._executor.shutdown(wait=True, cancel_futures=True)
@@ -117,6 +150,7 @@ class Assistant:
             self.store.save()
         except OSError:
             log.exception("Ayarlar kapanışta kaydedilemedi")
+        self.db.close()
         remove_error_listener(self._on_unhandled_error)
         self.bus.publish(Topics.APP_SHUTDOWN)
         log.info("Asistan kapatıldı")

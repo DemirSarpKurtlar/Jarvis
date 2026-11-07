@@ -3,11 +3,17 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
+from jarvis.ai.model_registry import spec_for
+from jarvis.ai.usage import BudgetStatus
 from jarvis.config.settings import Settings
 from jarvis.interface.components import Divider, Sparkline, ThinBar
+from jarvis.interface.format import tokens, usd
+from jarvis.interface.theme import C
 from jarvis.system.monitor import SystemSnapshot
+
+TIER_COLORS = {"light": C.CYAN, "main": C.MENEKSE, "advanced": C.AMBER}
 
 
 def tr_num(x: float, digits: int = 1) -> str:
@@ -57,6 +63,55 @@ class Metric(QWidget):
         self.setToolTip(tooltip)
 
 
+class ModelSplit(QWidget):
+    """Bu ayki harcamanın modellere dağılımı: renkli çubuk + açıklama."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 6, 0, 4)
+        lay.setSpacing(6)
+        self.bar = QWidget()
+        self.bar.setFixedHeight(6)
+        self.bar_lay = QHBoxLayout(self.bar)
+        self.bar_lay.setContentsMargins(0, 0, 0, 0)
+        self.bar_lay.setSpacing(2)
+        self.legend = QLabel(objectName="Not")
+        self.legend.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(self.bar)
+        lay.addWidget(self.legend)
+        self.set_split({})
+
+    def set_split(self, by_model: dict[str, float]) -> None:
+        while self.bar_lay.count():
+            w = self.bar_lay.takeAt(0).widget()
+            if w:
+                w.deleteLater()
+        tiers: dict[str, float] = {}
+        for model, cost in by_model.items():
+            tier = spec_for(model).tier
+            tiers[tier] = tiers.get(tier, 0.0) + cost
+        total = sum(tiers.values())
+        if total <= 0:
+            seg = QFrame()
+            seg.setStyleSheet(f"background:{C.CELIK}; border-radius:3px;")
+            self.bar_lay.addWidget(seg)
+            self.legend.setText("Bu ay henüz Claude kullanılmadı.")
+            return
+        names = {"light": "Haiku", "main": "Sonnet", "advanced": "Opus"}
+        legend = []
+        for tier in ("light", "main", "advanced"):
+            if tiers.get(tier, 0) <= 0:
+                continue
+            share = tiers[tier] / total
+            seg = QFrame()
+            seg.setStyleSheet(f"background:{TIER_COLORS[tier]}; border-radius:3px;")
+            self.bar_lay.addWidget(seg, max(1, int(share * 1000)))
+            pct = "&lt;1" if share < 0.01 else f"{share * 100:.0f}"
+            legend.append(f"<span style='color:{TIER_COLORS[tier]}'>&#9632;</span> {names[tier]} %{pct}")
+        self.legend.setText("&nbsp;&nbsp;".join(legend))
+
+
 class TelemetryPanel(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -87,29 +142,55 @@ class TelemetryPanel(QFrame):
         lay.addWidget(QLabel("Claude", objectName="SeritBaslik"))
         lay.addSpacing(6)
         self.claude_status = Metric("Bağlantı")
-        self.claude_status.set("Kurulmadı")
-        self.budget = Metric("Aylık limit")
+        self.claude_status.set("–")
+        self.today = Metric("Bugün")
+        self.month_bar = ThinBar()
+        self.month = Metric("Bu ay", self.month_bar)
+        self.models = ModelSplit()
+        self.in_tok = Metric("Giriş tokeni")
+        self.cache_tok = Metric("Önbellekten okunan")
+        self.out_tok = Metric("Çıkış tokeni")
+        self.searches = Metric("Web araması")
+        for m in (self.claude_status, self.today, self.month):
+            lay.addWidget(m)
+        lay.addWidget(self.models)
+        for m in (self.in_tok, self.cache_tok, self.out_tok, self.searches):
+            lay.addWidget(m)
         self.policy = QLabel("", objectName="Not")
         self.policy.setWordWrap(True)
-        lay.addWidget(self.claude_status)
-        lay.addWidget(self.budget)
-        note = QLabel(
-            "Claude bağlantısı, token ve maliyet takibi Aşama 2'de eklenecek.", objectName="Not"
-        )
-        note.setWordWrap(True)
         lay.addSpacing(4)
         lay.addWidget(self.policy)
-        lay.addWidget(note)
         lay.addStretch(1)
+        self._settings: Settings | None = None
 
     def apply_settings(self, s: Settings) -> None:
-        self.budget.set(f"${tr_num(s.budget.monthly_limit_usd, 2)}")
+        self._settings = s
         policy = {
             "fallback_light": "Limit dolunca ekonomik modele (Haiku) geçilir.",
             "block": "Limit dolunca Claude istekleri durdurulur.",
             "ask": "Limit dolunca her istekte sana sorulur.",
         }[s.budget.on_limit]
-        self.policy.setText(policy)
+        self.policy.setText(f"Tutarlar tahminidir, kesin fatura Anthropic Console'dadır. {policy}")
+
+    def update_claude_status(self, chat) -> None:  # noqa: ANN001
+        from jarvis.core.chat_service import ClaudeStatus
+        color = {ClaudeStatus.CONNECTED: C.CYAN, ClaudeStatus.NO_KEY: C.AMBER,
+                 ClaudeStatus.OFFLINE: C.AMBER, ClaudeStatus.ERROR: C.KIZIL}.get(chat.status, C.SIS)
+        self.claude_status.value.setStyleSheet(f"color:{color};")
+        self.claude_status.set(chat.status.value, tooltip=chat.status_detail)
+
+    def update_usage(self, b: BudgetStatus) -> None:
+        self.today.set(usd(b.today.cost_usd), f"/ {usd(b.daily_limit)}" if b.daily_limit else "")
+        self.month.set(usd(b.month.cost_usd), f"/ {usd(b.monthly_limit)}" if b.monthly_limit else "")
+        self.month_bar.set_value(b.month.cost_usd / b.monthly_limit if b.monthly_limit else 0)
+        level_color = {"ok": "", "warn": f"color:{C.AMBER};", "exceeded": f"color:{C.KIZIL};"}[b.level]
+        self.month.value.setStyleSheet(level_color)
+        self.today.value.setStyleSheet(level_color if b.daily_limit and b.today.cost_usd >= b.daily_limit * b.warn_ratio else "")
+        self.models.set_split(b.month.by_model)
+        self.in_tok.set(tokens(b.month.input_tokens + b.month.cache_creation_tokens))
+        self.cache_tok.set(tokens(b.month.cache_read_tokens))
+        self.out_tok.set(tokens(b.month.output_tokens))
+        self.searches.set(str(b.month.web_search_requests))
 
     def update_snapshot(self, snap: SystemSnapshot) -> None:
         self.cpu.set(tr_num(snap.cpu_percent, 0), "%")

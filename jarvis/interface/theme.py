@@ -124,6 +124,14 @@ def stylesheet(f: Fonts) -> str:
     #Kim {{ color: {C.SIS}; font-size: 12px; }}
     #SozJarvis {{ color: {C.BUZ}; font-size: 15px; }}
     #SozSen {{ color: {C.SIS}; font-size: 15px; }}
+    #Meta {{ color: {C.SIS}; font-size: 12px; }}
+    QScrollBar:vertical {{ width: 6px; background: transparent; }}
+    QScrollBar::handle:vertical {{ background: {C.CELIK}; border-radius: 3px; min-height: 30px; }}
+    QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; }}
+    QComboBox, QDoubleSpinBox {{ border: 1px solid {C.CELIK}; border-radius: 8px; padding: 6px 10px; background: {C.DERINLIK}; }}
+    QComboBox QAbstractItemView {{ background: {C.DERINLIK}; border: 1px solid {C.CELIK}; selection-background-color: rgba(82,228,242,0.15); }}
+    QCheckBox {{ spacing: 8px; }}
+    QMessageBox, QDialog {{ background: {C.DERINLIK}; }}
 
     /* Kontrol yuvası */
     #Yuva {{ background: rgba(11,21,38,0.85); border: 1px solid {C.CELIK}; border-radius: 18px; }}

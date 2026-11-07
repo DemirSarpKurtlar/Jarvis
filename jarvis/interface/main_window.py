@@ -26,7 +26,12 @@ from jarvis import __version__
 from jarvis.core.assistant import Assistant
 from jarvis.core.events import Topics
 from jarvis.core.state import AssistantState, StateChange
+from jarvis.core.chat_service import ClaudeStatus
+from jarvis.interface.chat_view import ChatView
 from jarvis.interface.components import icon
+from jarvis.interface.conversations_view import ConversationsView
+from jarvis.interface.dialogs import ask_budget
+from jarvis.interface.settings_view import SettingsView
 from jarvis.interface.telemetry_panel import TelemetryPanel
 from jarvis.interface.theme import C, Fonts
 from jarvis.interface.visualizer import ReactorWidget
@@ -44,11 +49,9 @@ NAV_ITEMS = [
 
 # Henüz yapılmamış bölümler: sahte içerik yerine dürüst bir açıklama gösterilir
 COMING = {
-    "konusmalar": ("Konuşmalar", "Geçmiş konuşmalar Claude bağlantısıyla birlikte Aşama 2'de burada listelenecek."),
     "hafiza": ("Hafıza", "Hatırladıklarımı görüp düzenleyebileceğin ve silebileceğin ekran Aşama 4'te geliyor."),
     "sistem": ("Sistem", "Ayrıntılı işlem ve donanım ekranı Aşama 5'te geliyor. Özet bilgiler sağdaki şeritte."),
     "otomasyon": ("Otomasyon", "Rutinler ve zamanlanmış görevler Aşama 6'da geliyor."),
-    "ayarlar": ("Ayarlar", "Ayarlar ekranı Aşama 7'de geliyor. O zamana kadar ayarlar şu dosyada duruyor:"),
 }
 
 DEMO_SEQUENCE = [
@@ -127,15 +130,24 @@ class Banner(QFrame):
         close.setToolTip("Kapat")
         close.setStyleSheet("border:0; padding:4px;")
         close.clicked.connect(on_close)
+        self.action = QPushButton(objectName="Dugme")
+        self.action.hide()
+        self._action_cb = None
+        self.action.clicked.connect(lambda: self._action_cb and self._action_cb())
         lay.addWidget(self.text, 1)
+        lay.addWidget(self.action, 0, Qt.AlignmentFlag.AlignVCenter)
         lay.addWidget(close, 0, Qt.AlignmentFlag.AlignTop)
         self.hide()
 
-    def show_message(self, message: str, level: str = "hata") -> None:
+    def show_message(self, message: str, level: str = "hata", action: str | None = None,
+                     on_action=None) -> None:  # noqa: ANN001
         self.setProperty("seviye", level)
         self.style().unpolish(self)
         self.style().polish(self)
         self.text.setText(message)
+        self._action_cb = on_action
+        self.action.setText(action or "")
+        self.action.setVisible(bool(action))
         self.show()
 
 
@@ -152,8 +164,7 @@ class PanelPage(QWidget):
         top = QHBoxLayout()
         top.addWidget(QLabel("JARVIS", objectName="Kelime"))
         top.addStretch(1)
-        self.claude_pill = QLabel("Claude: bağlı değil", objectName="Isaret")
-        self.claude_pill.setToolTip("Claude bağlantısı Aşama 2'de kurulacak")
+        self.claude_pill = QLabel("Claude: kontrol ediliyor", objectName="Isaret")
         self.mic_pill = QLabel(objectName="Isaret")
         top.addWidget(self.claude_pill)
         top.addWidget(self.mic_pill)
@@ -165,23 +176,13 @@ class PanelPage(QWidget):
         self.reactor = ReactorWidget(fonts, reduced_motion=s.ui.reduced_motion)
         lay.addWidget(self.reactor, 1)
 
-        # Altyazı
-        cap = QGridLayout()
-        cap.setColumnMinimumWidth(0, 64)
-        cap.setHorizontalSpacing(14)
-        who = QLabel("JARVIS", objectName="Kim")
-        who.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
-        self.caption = QLabel(
-            "Merhaba! Temel sistem çalışıyor. Yazılı sohbet Aşama 2'de, sesli konuşma Aşama 3'te açılacak.",
-            objectName="SozJarvis",
-        )
-        self.caption.setWordWrap(True)
-        cap.addWidget(who, 0, 0)
-        cap.addWidget(self.caption, 0, 1)
-        cap_wrap = QWidget()
-        cap_wrap.setLayout(cap)
-        cap_wrap.setMaximumWidth(720)
-        lay.addWidget(cap_wrap, 0, Qt.AlignmentFlag.AlignHCenter)
+        # Canlı sohbet alanı
+        self.chat = ChatView()
+        row = QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(self.chat, 100)  # 760 px'e kadar genişler, ortada durur
+        row.addStretch(1)
+        lay.addLayout(row)
 
         # Kontrol yuvası
         dock = QFrame(objectName="Yuva")
@@ -194,8 +195,9 @@ class PanelPage(QWidget):
         self.mic_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.mic_button.clicked.connect(lambda checked: self.assistant.set_microphone_enabled(not checked))
         self.input = QLineEdit(objectName="Giris")
-        self.input.setPlaceholderText("Yazılı sohbet Aşama 2'de açılacak")
-        self.input.setEnabled(False)
+        self.input.setPlaceholderText("JARVIS'e bir şey yaz ve Enter'a bas")
+        self.input.setMaxLength(8000)
+        self.input.returnPressed.connect(self._send)
         self.talk = QPushButton("Konuş", objectName="KonusDugmesi")
         self.talk.setEnabled(False)
         self.talk.setToolTip("Sesli konuşma Aşama 3'te açılacak")
@@ -215,6 +217,26 @@ class PanelPage(QWidget):
         lay.addWidget(dock)
 
         self.set_microphone(s.voice.microphone_enabled)
+
+    def _send(self) -> None:
+        text = self.input.text().strip()
+        if not text or self.assistant.chat.busy:
+            return
+        self.input.clear()
+        self.set_busy(True)  # hemen kilitle: çift Enter iki istek göndermesin
+        task = self.assistant.send_text(text)
+        # İstek hangi yoldan biterse bitsin (cevap, hata, bütçe reddi, iptal) kutuyu yeniden aç
+        task.add_done_callback(lambda _t: self.set_busy(False))
+
+    def set_busy(self, busy: bool) -> None:
+        self.input.setEnabled(not busy)
+        self.input.setPlaceholderText("JARVIS cevap yazıyor…" if busy else "JARVIS'e bir şey yaz ve Enter'a bas")
+        if not busy:
+            self.input.setFocus()
+
+    def set_claude_status(self, chat) -> None:  # noqa: ANN001
+        self.claude_pill.setText(f"Claude: {chat.status.value.lower()}")
+        self.claude_pill.setToolTip(chat.status_detail or "")
 
     def set_microphone(self, enabled: bool) -> None:
         self.mic_button.setChecked(not enabled)
@@ -272,11 +294,14 @@ class MainWindow(QMainWindow):
         self.panel = PanelPage(fonts, assistant)
         self.pages: dict[str, QWidget] = {"panel": self.panel}
         self.stack.addWidget(self.panel)
+        self.conversations = ConversationsView(assistant)
+        self.settings_view = SettingsView(assistant)
+        self.pages["konusmalar"] = self.conversations
+        self.pages["ayarlar"] = self.settings_view
         for key, (title, text) in COMING.items():
-            extra = str(assistant.store.path) if key == "ayarlar" else ""
-            page = ComingSoonPage(title, text, extra)
-            self.pages[key] = page
-            self.stack.addWidget(page)
+            self.pages[key] = ComingSoonPage(title, text)
+        for key in ("konusmalar", "hafiza", "sistem", "otomasyon", "ayarlar"):
+            self.stack.addWidget(self.pages[key])
         self.telemetry = TelemetryPanel()
         self.telemetry.apply_settings(assistant.settings)
 
@@ -290,6 +315,16 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.SYSTEM_SNAPSHOT, self.telemetry.update_snapshot)
         bus.subscribe(Topics.MICROPHONE_TOGGLED, self.panel.set_microphone)
         bus.subscribe(Topics.APP_ERROR, lambda msg: self.panel.banner.show_message(msg, "hata"))
+        chat = self.panel.chat
+        bus.subscribe(Topics.CHAT_STARTED, lambda ev: (chat.on_started(ev), self.panel.set_busy(True)))
+        bus.subscribe(Topics.CHAT_DELTA, chat.on_delta)
+        bus.subscribe(Topics.CHAT_DONE, lambda ev: (chat.on_done(ev), self.panel.set_busy(False)))
+        bus.subscribe(Topics.CHAT_FAILED, lambda msg: (chat.on_failed(msg), self.panel.set_busy(False)))
+        bus.subscribe(Topics.NOTICE, lambda msg: self.panel.banner.show_message(msg, "uyari"))
+        bus.subscribe(Topics.USAGE_UPDATED, self.telemetry.update_usage)
+        bus.subscribe(Topics.CLAUDE_STATUS, self._on_claude_status)
+        bus.subscribe(Topics.SETTINGS_CHANGED, self.telemetry.apply_settings)
+        bus.subscribe(Topics.CONFIRM_REQUEST, self._on_confirm)
 
         if assistant.store.load_warning:
             self.panel.banner.show_message(assistant.store.load_warning, "uyari")
@@ -302,6 +337,28 @@ class MainWindow(QMainWindow):
             # F8: durum görünümlerini sırayla dene (yalnızca geliştirici modu)
             QShortcut(QKeySequence("F8"), self, activated=self.demo_next_state)
             QShortcut(QKeySequence("F9"), self, activated=lambda: assistant.state.fail("Deneme hatası (F9)"))
+
+    def _on_claude_status(self, chat) -> None:  # noqa: ANN001
+        self.panel.set_claude_status(chat)
+        self.telemetry.update_claude_status(chat)
+        if chat.status is ClaudeStatus.NO_KEY:
+            self.panel.banner.show_message(
+                "Claude API anahtarı girilmedi. Sohbet için anahtarını eklemen gerekiyor.", "uyari",
+                "Anahtarı gir", self.open_key_dialog)
+        elif chat.status is ClaudeStatus.ERROR and chat.status_detail:
+            self.panel.banner.show_message(chat.status_detail, "hata", "Ayarlar", lambda: self.navigate("ayarlar"))
+        elif chat.status is ClaudeStatus.CONNECTED and self.panel.banner.action.text() == "Anahtarı gir":
+            self.panel.banner.hide()
+
+    def open_key_dialog(self) -> None:
+        self.navigate("ayarlar")
+        self.settings_view.open_key_dialog()
+
+    def _on_confirm(self, req) -> None:  # noqa: ANN001
+        def answer(ok: bool) -> None:
+            if not req.future.done():
+                req.future.set_result(ok)
+        self._confirm_box = ask_budget(self, req.question, answer)
 
     def navigate(self, key: str) -> None:
         self.stack.setCurrentWidget(self.pages[key])
