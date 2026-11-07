@@ -45,6 +45,8 @@ class GeneralSettings(_Section):
 class UISettings(_Section):
     start_minimized: bool = False
     reduced_motion: bool = False
+    # Pencereyi kapatınca bildirim alanında çalışmaya devam et (varsayılan: kapat = çık)
+    close_to_tray: bool = False
 
 
 class AISettings(_Section):

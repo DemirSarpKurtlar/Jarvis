@@ -1,0 +1,7 @@
+# Windows araçları için satır sonları (Inno Setup ve PowerShell betikleri)
+*.iss text eol=crlf
+*.ps1 text eol=crlf
+# İkili dosyalar
+*.ico binary
+*.png binary
+*.ttf binary
