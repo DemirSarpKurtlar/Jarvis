@@ -43,6 +43,35 @@ def jarvis_home(tmp_path, monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
+def collect_qt_garbage(request):
+    """Qt testinden sonra pencereleri ve döngüsel çöpü burada, güvenli bir anda temizle.
+
+    Pencereler (ör. dinleme göstergesi) olay veriyolu → abone → asistan → veriyolu döngüsüyle
+    test bittikten sonra da yaşar. Toplanmazsa Python onları sonraki testin ortasında, Qt bir
+    pencere çizerken silebilir: Linux CI'da rastgele "Segmentation fault" böyle çıkıyordu."""
+    yield
+    if "qapp" not in request.fixturenames and "qtbot" not in request.fixturenames:
+        return
+    import gc
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is not None:
+        # Python'un göremediği Qt ebeveyn bağları yüzünden pencereler döngüsel çöp olarak bile
+        # toplanamayabiliyor: test bitince hepsini burada kapatıp gerçekten sil.
+        for w in QApplication.topLevelWidgets():
+            try:
+                w.hide()
+                w.deleteLater()
+            except RuntimeError:     # C++ nesnesi zaten silinmiş
+                pass
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+    gc.collect()
+
+
+@pytest.fixture(autouse=True)
 def memory_keyring(request):
     if request.node.get_closest_marker("live"):
         # Canlı testler gerçek anahtar deposundaki (Windows Credential Manager) anahtarı kullanır

@@ -359,7 +359,9 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.VOICE_GPU, self._on_gpu_progress)
 
         # --- Dinleme göstergesi: ekranın üstünde, yalnızca sesli akışta ve bu pencere öndeyken değil ---
-        self.overlay = OverlayController(assistant, fonts, main_window_active=self._is_foreground, parent=self)
+        # Qt ebeveyni verilmez: ebeveyn→çocuk bağı Python'un çöp toplayıcısına görünmez; denetleyici
+        # asistanı (ve veriyolunu) tuttuğu için pencere+asistan döngüsü hiç toplanamıyordu.
+        self.overlay = OverlayController(assistant, fonts, main_window_active=self._is_foreground)
         # --- Dinleme göstergesi sonu ---
 
         if assistant.store.load_warning:
