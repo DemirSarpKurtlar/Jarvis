@@ -89,6 +89,23 @@ def ask_budget(parent: QWidget, question: str, answer: Callable[[bool], None]) -
     return box
 
 
+def ask_gpu_download(parent: QWidget, size_text: str, answer: Callable[[bool], None]) -> QMessageBox:
+    """Ekran kartı kütüphanelerini indirmeden önce boyutu gösterip onay ister (engellemeyen)."""
+    box = QMessageBox(parent)
+    box.setWindowTitle("Ekran kartı hızlandırması")
+    box.setText("Konuşma tanımanın ekran kartında çalışması için NVIDIA'nın CUDA kütüphanesi (cuBLAS) "
+                "indirilecek. Yalnızca JARVIS'in veri klasörüne kurulur; yönetici izni gerekmez.")
+    box.setInformativeText(size_text + " İndirme arka planda sürer; JARVIS'i kullanmaya devam edebilirsin.")
+    box.setIcon(QMessageBox.Icon.Question)
+    yes = box.addButton("İndir", QMessageBox.ButtonRole.AcceptRole)
+    no = box.addButton("Vazgeç", QMessageBox.ButtonRole.RejectRole)
+    box.setDefaultButton(yes)
+    box.setEscapeButton(no)
+    box.finished.connect(lambda _r: answer(box.clickedButton() is yes))
+    box.open()
+    return box
+
+
 # --- Aşama 5: araç onayı ---
 def ask_tool_confirmation(parent: QWidget, prompt, answer: Callable[[bool], None]) -> QMessageBox:  # noqa: ANN001
     """Engellemeyen araç onayı. Varsayılan düğme "Vazgeç"; kalıcı işlemlerde kırmızı uyarı."""

@@ -45,6 +45,7 @@ Claude Pro/Max aboneliği API kullanımını kapsamaz; API ayrı faturalanır. B
 | Loglar | `%LOCALAPPDATA%\JARVIS\Logs\jarvis.log` |
 | Claude API anahtarı | Windows Credential Manager > Windows Kimlik Bilgileri > `JARVIS` |
 | "Windows açılınca başlat" kaydı | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` > `JARVIS` |
+| Ekran kartı kütüphaneleri (isteğe bağlı, bkz. [9](#9-ekran-kartı-hızlandırması-nvidia)) | `%LOCALAPPDATA%\JARVIS\cuda\bin\` |
 
 Bu klasörleri **Ayarlar > Dosyalar** bölümünde de görebilirsin. `JARVIS_HOME` ortam değişkeni verilirse
 ayarlar, veri ve loglar o klasörün altında toplanır (taşınabilir kullanım).
@@ -145,3 +146,59 @@ Komut satırı seçenekleri:
 | `ci-loglari` | pytest sonuçları (JUnit XML), uygulama logları, kurulum/kaldırma logları, PyInstaller uyarıları |
 
 Yapıtlar 14 gün saklanır. Elle çalıştırmak için: GitHub > Actions > CI > **Run workflow**.
+
+## 9. Ekran kartı hızlandırması (NVIDIA)
+
+NVIDIA ekran kartı varsa konuşma tanıma `large-v3-turbo` modeliyle ekran kartında (GPU, float16) çalışır;
+Türkçe tanıma işlemcideki `small` modelden belirgin şekilde daha doğrudur. Bunun için NVIDIA'nın **cuBLAS**
+kütüphanesi gerekir. Kurulum programı onu içermez (yaklaşık 750 MB; ekran kartı olmayanlara gereksiz),
+bilgisayarda CUDA Toolkit kurulu değilse log'da şu görülür ve JARVIS işlemciye düşer:
+
+```
+GPU konuşma tanıma başarısız, CPU deneniyor: ... Library cublas64_12.dll is not found or cannot be loaded
+```
+
+**Tek tıkla kurulum:** üstteki amber bantta ya da **Ayarlar > Ses > Ekran kartı hızlandırması**'nda
+**Ekran kartı hızlandırmasını indir** düğmesi çıkar (yalnızca NVIDIA kart varsa ve kütüphane eksikse).
+Boyut indirmeden önce gösterilir:
+
+| | Boyut |
+|---|---|
+| İndirilen dosya (`nvidia_cublas_cu12-12.8.4.1-py3-none-win_amd64.whl`, PyPI) | 567.544.208 bayt (541 MB) |
+| Kurulunca diskte (`cublas64_12.dll` 113.716.224 + `cublasLt64_12.dll` 674.667.520 bayt) | 752 MB |
+| İndirme sırasında gereken boş yer (indirilen dosya çıkarılınca silinir) | ~1,3 GB |
+
+* Yönetici izni gerekmez; sisteme hiçbir şey kurulmaz. Dosyalar yalnızca `%LOCALAPPDATA%\JARVIS\cuda\bin\`
+  klasörüne çıkarılır. İndirme arka planda sürer, JARVIS kullanılmaya devam edebilir; **İptal** edilebilir ve
+  yarıda kalırsa bir sonraki denemede kaldığı yerden devam eder (`cuda\downloads\*.part`).
+* İndirilen dosyanın sha256 özeti hem PyPI'nin bildirdiği değerle hem de JARVIS'e gömülü değerle karşılaştırılır;
+  her DLL ayrıca paketin RECORD listesindeki özetle doğrulanır. Tutmazsa dosya silinir, hiçbir şey kurulmaz.
+* Bitince ses motoru kendiliğinden yeniden başlar ve sonuç bantta yazar, ör.
+  "Ekran kartı hızlandırması etkin: konuşma tanıma large-v3-turbo (GPU, float16)."
+* Kütüphaneler kurulu olduğu hâlde ekran kartı yine çalışmazsa JARVIS işlemcide kalır, düğmeyi bir daha
+  göstermez ve nedenini söyler (ayrıntı log dosyasında). Önce NVIDIA sürücüsünü güncellemeyi dene.
+* Kaldırmak için JARVIS kapalıyken `%LOCALAPPDATA%\JARVIS\cuda` klasörünü silmen yeterli.
+
+**Neden yalnızca cuBLAS, neden 12.8.4.1?** (doğrulandı, Kasım 2026)
+
+* JARVIS'in kullandığı ctranslate2 4.8.5'in Windows paketi CUDA 12.8.1 ile, cuDNN'siz (`WITH_CUDNN=OFF`) ve
+  `CUDA_DYNAMIC_LOADING=ON` ile derleniyor. `ctranslate2.dll` CUDA çalışma zamanını içinde taşır; cuBLAS'ı
+  ilk GPU işleminde `LoadLibraryA("cublas64_12.dll")` ile arar. cuDNN gerekmez (4.6.3'ten beri Whisper'ın
+  Conv1D katmanı saf CUDA; pakette gelen `cudnn64_9.dll` yalnızca bir kabuk). Bu yüzden cuDNN (~700 MB)
+  indirilmez.
+* cuBLAS 12.8.4.1, ctranslate2'nin derlendiği CUDA 12.8 Update 1'in cuBLAS'ı ve RTX 50 serisi (Blackwell,
+  sm_120) için yerel çekirdek içeren ilk cuBLAS serisidir.
+* İndirilen DLL'lerin içe aktarım tabloları incelendi: `cublas64_12.dll` yalnızca `cublasLt64_12.dll` ve
+  `KERNEL32.dll`'e, `cublasLt64_12.dll` yalnızca `KERNEL32.dll`'e bağlı; ayrı bir `cudart64_12.dll` gerekmez.
+* `LoadLibraryA` düz arama yaptığından `os.add_dll_directory` tek başına yetmez: JARVIS klasörü hem
+  `add_dll_directory` ile hem de PATH'in başına ekler ve GPU denemesinden önce DLL'leri tam yollarıyla yükler.
+
+**Bilinen sınır (Blackwell / RTX 50xx):** ctranslate2 4.8.5'in kendi CUDA çekirdekleri sm_53…sm_86 için
+derlenmiş, yanında compute_86 PTX var; sm_120 için hazır çekirdek yok. NVIDIA sürücüsü bu PTX'i ilk
+çalıştırmada karta göre derler (JIT), bu yüzden **ilk** GPU başlatması bir-iki dakika sürebilir; sonraki
+açılışlar sürücü önbelleğinden hızlı gelir. INT8 bu kartlarda ctranslate2'de kapalıdır; JARVIS GPU'da
+float16 kullanır. Bunların gerçek bir RTX 5070 Ti'de çalıştığı bu geliştirme ortamında (GPU yok) denenemedi:
+indirme, doğrulama, çıkarma ve DLL arama yolu Linux'ta gerçek PyPI dosyasıyla, `LoadLibraryW` ile adla
+bulma Windows CI'da sınanıyor; GPU'da gerçek çalışma ancak kullanıcının bilgisayarında doğrulanabilir
+(`python -m pytest -m windows tests/test_cuda_libs.py`).
+

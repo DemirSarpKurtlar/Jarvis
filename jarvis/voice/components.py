@@ -10,6 +10,7 @@ Her parça ayrı ayrı bozulabilir; motor elindekiyle çalışır ve eksikleri T
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import threading
@@ -20,9 +21,11 @@ from typing import Any, Protocol
 
 from jarvis.config.settings import VoiceSettings
 from jarvis.core.errors import JarvisError
+from jarvis.voice import cuda_libs
 from jarvis.voice.audio_io import (AudioPlayer, AudioUnavailable, MicrophoneStream, OutputHistory, find_device,
                                    list_devices, load_backend)
 from jarvis.voice.models import WAKE_FILES, ModelError, ModelManager, OWW_EMBEDDING, OWW_HEY_JARVIS, OWW_MELSPEC, ProgressFn
+from jarvis.voice.cuda_libs import GpuReport
 from jarvis.voice.stt import SpeechToText, STTError, WhisperSTT, choose
 from jarvis.voice.tts import PiperTTS, TextToSpeech
 from jarvis.voice.vad import EnergyVad, SileroVad, VadModel
@@ -45,6 +48,16 @@ class VoiceComponents:
     tts: TextToSpeech | None = None
     notes: list[str] = field(default_factory=list)
     stt_label: str = ""
+    gpu: GpuReport | None = None     # ekran kartı durumu (hızlandırma düğmesi buna bakar)
+
+
+# Bant bu metni görünce "Ekran kartı hızlandırmasını indir" düğmesini ekler (main_window.py)
+CUDA_MISSING_NOTE = ("Ekran kartında konuşma tanıma çalışmadı: CUDA kütüphaneleri (cuBLAS) eksik; "
+                     "işlemci kullanılıyor.")
+CUDA_GENERIC_NOTE = ("Ekran kartında konuşma tanıma çalışmadı (CUDA kütüphaneleri eksik olabilir); "
+                     "işlemci kullanılıyor.")
+CUDA_STILL_FAILING_NOTE = ("Ekran kartı kütüphaneleri kurulu olmasına rağmen konuşma tanıma ekran kartında "
+                           "çalışmadı; işlemci kullanılıyor. Ayrıntılar log dosyasında.")
 
 
 class ComponentLoader(Protocol):
@@ -77,9 +90,12 @@ def build_wake_detector(settings: VoiceSettings, manager: ModelManager, progress
 
 
 class RealComponentLoader:
-    def __init__(self, manager: ModelManager | None = None, backend_loader: Callable[[], Any] = load_backend) -> None:
+    def __init__(self, manager: ModelManager | None = None, backend_loader: Callable[[], Any] = load_backend,
+                 gpu_probe: Callable[[], str] = cuda_libs.probe_nvidia, cuda_root: Path | None = None) -> None:
         self.manager = manager
         self.backend_loader = backend_loader
+        self.gpu_probe = gpu_probe        # NVIDIA kartın adı ("" = yok); testler sahtesini verir
+        self.cuda_root = cuda_root        # indirilen cuBLAS klasörü (None = veri klasörü/cuda)
 
     def load(self, settings: VoiceSettings, progress: ProgressFn, cancel: threading.Event,
              gain: Callable[[], float]) -> VoiceComponents:
@@ -134,9 +150,9 @@ class RealComponentLoader:
         self._check_cancel(cancel)
 
         # 4) Konuşma tanıma (small ~460 MB, large-v3-turbo ~1,6 GB)
-        stt, label = self._load_stt(settings, manager, progress, cancel, notes)
+        stt, label, gpu = self._load_stt(settings, manager, progress, cancel, notes)
         mic_factory = lambda: MicrophoneStream(backend, in_dev)  # noqa: E731
-        return VoiceComponents(vad, mic_factory, player, wake, stt, tts, notes, label)
+        return VoiceComponents(vad, mic_factory, player, wake, stt, tts, notes, label, gpu)
 
     @staticmethod
     def _check_cancel(cancel: threading.Event) -> None:
@@ -144,24 +160,49 @@ class RealComponentLoader:
             raise VoiceDisabled("iptal", user_message="Ses motoru başlatılması iptal edildi.")
 
     def _load_stt(self, settings: VoiceSettings, manager: ModelManager, progress: ProgressFn,
-                  cancel: threading.Event, notes: list[str]) -> tuple[SpeechToText | None, str]:
-        choice = choose(settings.stt_model, settings.stt_device)
+                  cancel: threading.Event, notes: list[str]) -> tuple[SpeechToText | None, str, GpuReport]:
+        # Windows: JARVIS'in indirdiği cuBLAS varsa DLL arama yoluna ekle (yoksa hiçbir şey yapmaz)
+        libs = cuda_libs.is_installed(self.cuda_root)
+        cuda_libs.activate(self.cuda_root)
         try:
+            gpu_name = self.gpu_probe()
+        except Exception:  # noqa: BLE001
+            gpu_name = ""
+        choice = choose(settings.stt_model, settings.stt_device)
+        if choice.device == "cuda" and not gpu_name:
+            gpu_name = "NVIDIA ekran kartı"
+        report = GpuReport(gpu_name, libs_installed=libs, device_setting=settings.stt_device,
+                           issue="no_cuda" if gpu_name and choice.device == "cpu" and settings.stt_device != "cpu"
+                           else "")
+        gpu_error = ""
+        try:
+            if choice.device == "cuda" and libs:
+                err = cuda_libs.preload(self.cuda_root)
+                if err:
+                    log.warning("Ekran kartı kütüphaneleri önceden yüklenemedi: %s", err)
             stt = WhisperSTT(manager.ensure_whisper(choice.model, progress, cancel), choice)
             stt.load()
-            return stt, stt.label
+            return stt, stt.label, dataclasses.replace(report, on_gpu=choice.device == "cuda")
         except (ModelError, STTError) as e:
             if choice.device != "cuda":
                 notes.append(f"Sesli komut kapalı: {e.user_message}")
-                return None, ""
+                return None, "", report
+            gpu_error = str(e)
             log.warning("GPU konuşma tanıma başarısız, CPU deneniyor: %s", e)
+        missing = cuda_libs.is_missing_library_error(gpu_error)
+        if libs:
+            note, issue = CUDA_STILL_FAILING_NOTE, "gpu_failed"
+        elif missing:
+            note, issue = CUDA_MISSING_NOTE, "libs_missing"
+        else:
+            note, issue = CUDA_GENERIC_NOTE, "gpu_failed"
+        report = dataclasses.replace(report, issue=issue, detail=gpu_error)
         cpu = choose("small" if settings.stt_model == "auto" else settings.stt_model, "cpu")
         try:
             stt = WhisperSTT(manager.ensure_whisper(cpu.model, progress, cancel), cpu)
             stt.load()
-            notes.append("Ekran kartında konuşma tanıma çalışmadı (CUDA kütüphaneleri eksik olabilir); "
-                         "işlemci kullanılıyor.")
-            return stt, stt.label
+            notes.append(note)
+            return stt, stt.label, report
         except (ModelError, STTError) as e:
             notes.append(f"Sesli komut kapalı: {e.user_message}")
-            return None, ""
+            return None, "", report

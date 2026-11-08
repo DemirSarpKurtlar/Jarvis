@@ -19,6 +19,7 @@ from jarvis.core.errors import JarvisError
 from jarvis.core.events import Topics
 from jarvis.interface.theme import C
 from jarvis.voice.audio_io import AudioDevice, AudioUnavailable, list_devices, load_backend
+from jarvis.voice.cuda_libs import default_cuda_dir, size_summary
 from jarvis.voice.models import PIPER_VOICES, default_models_dir
 
 log = logging.getLogger(__name__)
@@ -161,6 +162,33 @@ class VoicePanel(QWidget):
         self.stt_device.currentIndexChanged.connect(self._apply_restart_settings)
         form.addRow("Konuşma tanıma modeli", self.stt_combo)
         form.addRow("Konuşma tanıma donanımı", self.stt_device)
+
+        # Ekran kartı hızlandırması: NVIDIA kart var ama cuBLAS eksikse tek tıkla indirme
+        gpu_box = QVBoxLayout()
+        gpu_box.setSpacing(4)
+        self.gpu_info = QLabel(objectName="Not")
+        self.gpu_info.setWordWrap(True)
+        self.gpu_info.setTextFormat(Qt.TextFormat.RichText)
+        gpu_row = QHBoxLayout()
+        self.gpu_btn = QPushButton("Ekran kartı hızlandırmasını indir", objectName="Dugme")
+        self.gpu_btn.setToolTip(f"NVIDIA cuBLAS kütüphanesi şu klasöre kurulur: {default_cuda_dir()}")
+        self.gpu_btn.clicked.connect(self.start_gpu_download)
+        self.gpu_bar = QProgressBar(objectName="SesSeviyesi")
+        self.gpu_bar.setRange(0, 1000)
+        self.gpu_bar.setTextVisible(False)
+        self.gpu_bar.setFixedWidth(220)
+        self.gpu_cancel = QPushButton("İptal", objectName="Dugme")
+        self.gpu_cancel.clicked.connect(self.voice.cancel_gpu_install)
+        for wdg in (self.gpu_btn, self.gpu_bar, self.gpu_cancel):
+            gpu_row.addWidget(wdg)
+        gpu_row.addStretch(1)
+        self.gpu_result = QLabel(objectName="Not")
+        self.gpu_result.setWordWrap(True)
+        self.gpu_result.hide()
+        gpu_box.addWidget(self.gpu_info)
+        gpu_box.addLayout(gpu_row)
+        gpu_box.addWidget(self.gpu_result)
+        form.addRow("Ekran kartı hızlandırması", gpu_box)
         lay.addLayout(form)
 
         buttons = QHBoxLayout()
@@ -191,7 +219,8 @@ class VoicePanel(QWidget):
         self._update_labels()
         bus = assistant.bus
         self._unsubs = [bus.subscribe(Topics.VOICE_STATUS, self.show_status),
-                        bus.subscribe(Topics.VOICE_LEVEL, self._on_level)]
+                        bus.subscribe(Topics.VOICE_LEVEL, self._on_level),
+                        bus.subscribe(Topics.VOICE_GPU, self._on_gpu_progress)]
         self.show_status(self.voice.status)
 
     # ---------- aygıtlar ----------
@@ -301,6 +330,12 @@ class VoicePanel(QWidget):
         self.result.setText("Ses motoru yeniden başlatılıyor…")
         self.assistant.spawn(self.voice.restart(), "voice-restart")
 
+    def start_gpu_download(self) -> None:
+        """Boyut zaten düğmenin üstünde yazıyor; tıklayınca indirme arka planda başlar."""
+        self.gpu_btn.hide()
+        self.gpu_result.hide()
+        self.assistant.spawn(self.voice.install_gpu_libs(), "voice-gpu")
+
     async def _calibrate(self) -> None:
         self.calibrate_btn.setEnabled(False)
         self.result.setText("Ölçüyorum, 2 saniye sessiz kal…")
@@ -339,3 +374,39 @@ class VoicePanel(QWidget):
         self.status.setText("<br>".join(p for p in parts if p))
         self.test_btn.setEnabled(status.tts)
         self.calibrate_btn.setEnabled(status.ready and status.mic.name != "OFF")
+        self._update_gpu(status)
+
+    # ---------- ekran kartı hızlandırması ----------
+    def _update_gpu(self, status) -> None:  # noqa: ANN001
+        gpu = getattr(status, "gpu", None)
+        installing = self.voice.gpu_installing
+        if gpu is None:
+            text = ("Ses motoru hazırlanınca ekran kartı denetlenir." if status.starting
+                    else "Ekran kartı durumu bilinmiyor (ses motoru hazır değil).")
+        else:
+            text = gpu.summary()
+            if gpu.offer_download and not installing:
+                text += "<br>" + size_summary()
+        self.gpu_info.setText(text)
+        self.gpu_btn.setVisible(bool(gpu is not None and gpu.offer_download and not installing))
+        self.gpu_bar.setVisible(installing)
+        self.gpu_cancel.setVisible(installing)
+
+    def _on_gpu_progress(self, p) -> None:  # noqa: ANN001
+        done = p.finished or p.error is not None
+        self.gpu_bar.setVisible(not done)
+        self.gpu_cancel.setVisible(not done and p.phase == "download")
+        if not done:
+            self.gpu_btn.hide()
+            frac = p.fraction
+            if frac is None:
+                self.gpu_bar.setRange(0, 0)     # belirsiz (doğrulama, çıkarma, yeniden başlatma)
+            else:
+                self.gpu_bar.setRange(0, 1000)
+                self.gpu_bar.setValue(int(frac * 1000))
+        color = C.CYAN if p.finished and p.ok else (C.AMBER if done else C.SIS)
+        self.gpu_result.setStyleSheet(f"color:{color};")
+        self.gpu_result.setText(p.text())
+        self.gpu_result.show()
+        if done:
+            self.show_status(self.voice.status)   # düğme görünürlüğünü yeni duruma göre yenile

@@ -48,6 +48,7 @@ class Topics:
     VOICE_TRANSCRIPT = "voice.transcript"      # payload: Transcript (yalnızca tanınan metin)
     VOICE_ERROR = "voice.error"                # payload: str (kullanıcı mesajı)
     VOICE_DOWNLOAD = "voice.download"          # payload: DownloadProgress
+    VOICE_GPU = "voice.gpu"                    # payload: CudaProgress (ekran kartı kütüphaneleri indirmesi)
 
 
 class EventBus:

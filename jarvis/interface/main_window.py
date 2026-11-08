@@ -30,7 +30,7 @@ from jarvis.core.chat_service import ClaudeStatus
 from jarvis.interface.chat_view import ChatView
 from jarvis.interface.components import icon
 from jarvis.interface.conversations_view import ConversationsView
-from jarvis.interface.dialogs import ask_budget, ask_tool_confirmation
+from jarvis.interface.dialogs import ask_budget, ask_gpu_download, ask_tool_confirmation
 from jarvis.interface.memory_view import MemoryView
 from jarvis.interface.settings_view import SettingsView
 from jarvis.interface.system_view import SystemView  # Aşama 5
@@ -38,6 +38,8 @@ from jarvis.interface.automation_view import AutomationView  # Aşama 6
 from jarvis.interface.telemetry_panel import TelemetryPanel
 from jarvis.interface.theme import C, Fonts
 from jarvis.interface.visualizer import ReactorWidget
+from jarvis.voice.components import CUDA_MISSING_NOTE
+from jarvis.voice.cuda_libs import size_summary
 
 log = logging.getLogger(__name__)
 
@@ -341,7 +343,7 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.CHAT_DELTA, chat.on_delta)
         bus.subscribe(Topics.CHAT_DONE, lambda ev: (chat.on_done(ev), self.panel.set_busy(False)))
         bus.subscribe(Topics.CHAT_FAILED, lambda msg: (chat.on_failed(msg), self.panel.set_busy(False)))
-        bus.subscribe(Topics.NOTICE, lambda msg: self.panel.banner.show_message(msg, "uyari"))
+        bus.subscribe(Topics.NOTICE, self._on_notice)
         bus.subscribe(Topics.USAGE_UPDATED, self.telemetry.update_usage)
         bus.subscribe(Topics.CLAUDE_STATUS, self._on_claude_status)
         bus.subscribe(Topics.SETTINGS_CHANGED, self.telemetry.apply_settings)
@@ -353,6 +355,7 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.VOICE_LEVEL, self._on_voice_level)
         bus.subscribe(Topics.VOICE_DOWNLOAD, self._on_voice_download)
         bus.subscribe(Topics.VOICE_ERROR, lambda msg: self.panel.banner.show_message(msg, "uyari"))
+        bus.subscribe(Topics.VOICE_GPU, self._on_gpu_progress)
 
         if assistant.store.load_warning:
             self.panel.banner.show_message(assistant.store.load_warning, "uyari")
@@ -452,6 +455,35 @@ class MainWindow(QMainWindow):
             return
         banner.setProperty("ses_indirme", True)
         banner.show_message(p.text(), "bilgi")
+
+    # --- ekran kartı hızlandırması (cuBLAS indirmesi) ---
+    GPU_ACTION = "Ekran kartı hızlandırmasını indir"
+
+    def _on_notice(self, msg: str) -> None:
+        """Ekran kartında konuşma tanıma cuBLAS eksik diye çalışmadıysa bantta tek tık düğmesi çıkar."""
+        if CUDA_MISSING_NOTE in msg and self.assistant.voice.gpu_offer:
+            self.panel.banner.show_message(msg, "uyari", self.GPU_ACTION, self.offer_gpu_download)
+        else:
+            self.panel.banner.show_message(msg, "uyari")
+
+    def offer_gpu_download(self) -> None:
+        """Önce boyutu gösterip onay ister; onaylanınca indirme arka planda başlar."""
+        def answer(ok: bool) -> None:
+            if ok:
+                self.start_gpu_download()
+        self._gpu_box = ask_gpu_download(self, size_summary(), answer)
+
+    def start_gpu_download(self) -> None:
+        self.assistant.spawn(self.assistant.voice.install_gpu_libs(), "voice-gpu")
+
+    def _on_gpu_progress(self, p) -> None:  # noqa: ANN001
+        banner = self.panel.banner
+        if p.error:
+            banner.show_message(p.text(), "uyari", "Tekrar dene", self.start_gpu_download)
+        elif p.finished:
+            banner.show_message(p.text(), "bilgi" if p.ok else "uyari")
+        else:
+            banner.show_message(p.text(), "bilgi")
 
     def demo_next_state(self) -> None:
         sm = self.assistant.state
