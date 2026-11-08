@@ -119,3 +119,17 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 Üstteki taslak çubuğundan 7 ses durumu ve silme onayı penceresi denenebilir.
 Son uygulama PySide6 ile yazılacak. Görselleştirici QPainter ile aynı şekilde çizilecek,
 fontlar (Saira ve IBM Plex Sans, OFL lisanslı) uygulamayla birlikte paketlenecek.
+
+## 2026-11-08 — Sistem özellikleri (SISTEM)
+
+| Konu | Karar |
+|---|---|
+| GPU sıcaklık uyarısı | `system/gpu_watch.py`, SYSTEM_SNAPSHOT dinler. Eşik 85 °C, 30 sn, 10 dk bekleme (`settings.sistem`, Otomasyon ekranında aç/kapat + eşik). Ekranda NOTICE; ses motorunun dışa açık tek konuşma yolu `speak_test` olduğundan yalnızca JARVIS boştayken sesli. Sensör okunamıyorsa uyarı yok. |
+| İndirilenler rutini | `organize_folder` planı yeniden kullanılır; yalnızca taşır, asla silmez/üzerine yazmaz, son 10 dk'da değişen ve inen dosyalara dokunmaz. Açarken onay penceresinde önizleme. Her taşıma `data/indirilenler_rutini.json` kaydına yazılır; "düzenlemeyi geri al" son çalıştırmayı geri taşır (yerinde yeni dosya varsa atlar). JARVIS açıkken günde bir; kaçırılan gün açılıştan ~90 sn sonra telafi. |
+| Yer açma | Yalnızca okur; süre (20 sn), öğe (300 bin) ve özet okuma (2 GB/12 sn) sınırlı, iptal edilebilir. Kopya = boyut + ilk 64 KB + tam BLAKE2b; bütçe yetmezse "doğrulanamadı" denir, kopya denmez. Silme yalnızca mevcut `delete_path` (Geri Dönüşüm Kutusu, onaylı). |
+| Geçici dosyalar | %TEMP% ve (izin varsa) Windows\Temp; kök adı Temp/tmp olmalı. 24 saatten eski dosyalar, bağ/junction izlenmez, silmeden hemen önce yol yeniden denetlenir, kilitli dosyalar atlanır. Boşalan MB yalnızca gerçekten silinenlerden. Geri Dönüşüm Kutusu yalnızca bilgi. |
+| Wi-Fi/Bluetooth | Windows.Devices.Radios, sabit PowerShell betiği (`-EncodedCommand`); betiğe yalnızca izin listesindeki değerler (WiFi/Bluetooth, On/Off) girer. İşlemden sonra durum yeniden okunur. Wi-Fi'yi kapatmak onaylı. "bluetooth'u aç" artık ayar sayfası değil, gerçek açma. |
+| winget | Argüman listesi; ad sıkı desenle doğrulanır, yalnızca `--query` değeri olur. Kurulum/güncelleme `--id <kimlik> --exact --source winget --silent --accept-*`. Ad aramayla kimliğe çözülür, belirsizse adaylar sorulur; onayda ad/kimlik/yayıncı/sürüm. Sonuç `winget list`/`upgrade` ile doğrulanır. |
+| Hız testi | speed.cloudflare.com, ~25 MB indirme + ~5 MB yükleme, aşama başına süre sınırı, iptal edilebilir. |
+| Uyku/hazırda bekletme | `power_action`'a eklendi. `shutdown /t` uyku yapamadığı için gecikme uygulama içi zamanlayıcıda "iç iş" olarak (yalnızca onaydan sonra, araç olarak açılmaz) tutulur; Otomasyon ekranında geri sayım ve iptal. Kapatma geri sayımı da listede görünür; oradan iptal `shutdown /a`. Kapatmada en az 30 sn, en çok 24 saat. |
+| Windows Update | Microsoft.Update.Session COM ile yalnızca listeleme; yükleme yok, yalnızca Ayarlar > Windows Update açılır. |

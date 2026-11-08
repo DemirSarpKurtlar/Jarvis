@@ -99,6 +99,12 @@ class Assistant:
         self._tasks.append(asyncio.create_task(self.tool_service.warm_up(), name="apps-index"))
         # Ses modelleri ilk açılışta indirilir: arka planda, pencereyi bekletmeden
         self._tasks.append(asyncio.create_task(self.voice.start(), name="voice-start"))
+        # --- SISTEM ---
+        # GPU sıcaklık uyarısı ve İndirilenler'in günlük düzenlenmesi (jarvis/system/routines.py)
+        from jarvis.system.routines import SistemServices
+        self.sistem = SistemServices(self)
+        self.sistem.start()
+        # --- SISTEM sonu ---
         self.running = True
         log.info("Asistan çekirdeği başlatıldı")
 

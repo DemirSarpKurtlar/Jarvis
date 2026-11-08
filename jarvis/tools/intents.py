@@ -254,6 +254,14 @@ def parse(text: str) -> Intent | None:
     if not cleaned:
         return None
     f = fold(cleaned)
+    # --- SISTEM ---
+    # "1 saat sonra bilgisayarı kapat" tek komuttur: çok adımlı cümle süzgecinden ("sonra") önce bakılır
+    if f and not re.search(r"[,;]", cleaned):
+        from jarvis.tools import sistem_intents
+        hit = sistem_intents.parse(f, Intent, _number_words)
+        if hit:
+            return hit
+    # --- SISTEM sonu ---
     if not f or _MULTI.search(f) or re.search(r"[,;]", cleaned):
         return None
 

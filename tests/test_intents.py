@@ -53,7 +53,8 @@ CASES = [
     ("ayarlardan ekranı aç", "open_settings", {"page": "ekran"}),
     ("Windows Update ayarları", "open_settings", {"page": "guncelleme"}),
     ("ayarları aç", "open_settings", {"page": "ana_sayfa"}),
-    ("bluetooth'u aç", "open_settings", {"page": "bluetooth"}),
+    # SISTEM: radyo artık gerçekten açılıp kapatılıyor (radio_control); ayar sayfası için "bluetooth ayarlarını aç"
+    ("bluetooth'u aç", "radio_control", {"radio": "bluetooth", "action": "ac"}),
     ("ses ayarlarını açar mısın", "open_settings", {"page": "ses"}),
     # donanım ve sistem
     ("ekran kartı sıcaklığı kaç", "gpu_status", {}),
