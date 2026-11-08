@@ -130,4 +130,5 @@ def test_editor_helpers(tmp_path):
     assert names[:4] == ["wait", "say", "open_app", "close_app"]
     assert "run_routine" not in names and "delete_path" not in names
     assert default_args(reg.get("close_app").input_schema) == {"name": "", "force": False}
-    assert default_args(reg.get("power_action").input_schema) == {"action": "shutdown", "delay_seconds": 30}
+    # SISTEM: uyku hemen olabildiği için şema en az 0 sn (kapatma için 30 sn kuralı prepare içinde)
+    assert default_args(reg.get("power_action").input_schema) == {"action": "shutdown", "delay_seconds": 0}
