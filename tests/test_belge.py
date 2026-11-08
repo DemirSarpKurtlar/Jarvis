@@ -524,7 +524,8 @@ def test_latest_download_errors(env, tmp_path):
     ("Jarvis, panoyu temizler misin?", "write_clipboard", {"text": ""}),
     ("panoyu boşalt", "write_clipboard", {"text": ""}),
     ("panoda ne var", "read_clipboard", {}),
-    ("panodakini oku", "read_clipboard", {}),
+    # "oku" = sesli oku (özellik 19, EKRAN): metni göstermek için "panoda ne var"
+    ("panodakini oku", "read_text_aloud", {"source": "clipboard"}),
     ("son indirdiğim PDF'i aç", "latest_download", {"extension": "pdf", "action": "open"}),
     ("son indirdiğim pdfi aç", "latest_download", {"extension": "pdf", "action": "open"}),
     ("en son indirilen dosyayı aç", "latest_download", {"extension": "", "action": "open"}),
