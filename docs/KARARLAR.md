@@ -119,3 +119,15 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 Üstteki taslak çubuğundan 7 ses durumu ve silme onayı penceresi denenebilir.
 Son uygulama PySide6 ile yazılacak. Görselleştirici QPainter ile aynı şekilde çizilecek,
 fontlar (Saira ve IBM Plex Sans, OFL lisanslı) uygulamayla birlikte paketlenecek.
+
+## 2026-11-08 — Ekran, pencere ve ses girişi (EKRAN)
+
+| Konu | Karar |
+|---|---|
+| Ekran yakalama | `jarvis/system/screen.py`: saf ctypes GDI BitBlt (ek paket yok, paketlenmiş exe'de de çalışır), küçültme + PNG QImage ile (her thread'de güvenli). Koordinatlar fiziksel piksel, süreç monitör başına DPI farkında (Qt açıyor; `ensure_dpi_awareness()` güvence). Yeniden kullanım: `capture(...) -> (png, genişlik, yükseklik, ölçek)`, ayrıntı için `grab()` (`region`, `to_screen()`). |
+| Ekran görüntüsü | Tam çözünürlük, `Resimler\Screenshots\JARVIS\JARVIS_YYYY-AA-GG_SS-DD-ss.png` (dosya korumalı alanı içinde), yazıldıktan sonra boyut doğrulanır. Varsayılan: tüm monitörler (PrintScreen gibi). |
+| "Ekranımda ne var?" | `look_at_screen` aracı; görüntü en uzun kenarı 1568 px'e küçültülüp `tool_result` içinde görüntü bloğu olarak gider (registry.py'de işaretli küçük ek). Diske, denetim kaydına ve konuşma geçmişine yazılmaz; güvenilmeyen içerik notuyla gider. Yerel komut yok: Claude aracı çağırır (zorunlu `tool_choice` için chat_service değişikliği gerekirdi). |
+| Pencere düzeni | `arrange_windows` (SAFE): büyüt/küçült/eski boyut, sol/sağ yarı, yan yana, hepsini küçült/geri getir, başka monitöre taşı. ShowWindowAsync (yanıt vermeyen uygulama JARVIS'i kilitlemez), görünmez çerçeve kenarları DWM ile telafi edilir. Sonuç yeniden okunur; tutmadıysa söylenir. JARVIS'in kendi pencereleri atlanır. |
+| Seçili metni okuma | Ctrl+C (konsol/terminalde Ctrl+Insert: Ctrl+C orada işlemi durdurur), pano önceki hâline geri yüklenir (bellek tabanlı tüm biçimler). Parola yöneticisi işaretli pano içeriği okunmaz. SAFE: yalnızca kopyalama kısayolu, geri alınabilir. Odak JARVIS'teyse tuş gönderilmez. |
+| Dikte | Söylenenler SendInput KEYEVENTF_UNICODE ile yazılır (Türkçe karakterler düzenden bağımsız). Onay = dikteyi başlatmak: sesle "dikte modu" demek onaydır; yazılı komut ya da Claude başlatırsa onay penceresi (CONFIRM). Açıkken metin Claude'a gitmez, uyandırma kelimesi gerekmez, 2 dk sessizlikte ya da mikrofon kapanınca kapanır. Pill: "Mikrofon: dikte ediliyor". |
+| İngilizce ses | `en_US-norman-medium` (Piper, HF `rhasspy/piper-voices` v1.0.0): LibriVox kayıtları, kamu malı, sıfırdan eğitilmiş erkek ses. ryan/hfc_male (CC BY-NC-SA) ve lessac'tan ince ayarlı sesler (araştırma lisansı) elendi. İlk ihtiyaçta indirilir (~61 MB, md5 + boyut doğrulamalı, ilerleme bandında). `speak_in_language` aracı; çeviriyi Claude yapar. Sesli istekte araç konuştuysa Claude'un cevabı ikinci kez okunmaz. |
