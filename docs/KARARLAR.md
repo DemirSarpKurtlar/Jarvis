@@ -42,6 +42,20 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 | Anahtar | Windows Credential Manager. Kaydetmeden önce ücretsiz model sorgusuyla doğrulanır. |
 | Canlı testler | `pytest -m live`, varsayılan çalıştırmada atlanır (ücretli). |
 
+## 2026-11-07 — Aşama 3 teknik kararları (ses motoru)
+
+| Konu | Karar |
+|---|---|
+| Uyandırma | openWakeWord v0.5.1 ONNX modelleri (GitHub sürümünden, sha256 doğrulamalı). Paketin kendisi yerine akış hattı onnxruntime ile birebir yazıldı: paket scipy/scikit-learn çekiyor, Linux'ta kurulamayan tflite-runtime'a bağlı ve pakete ~150 MB ekliyor. Skor farkı paketle karşılaştırıldı: en çok 0,00005. |
+| "Hey Jarvis" / "Jarvis" | Aynı hazır model, iki eşik: hassasiyet eşiği (tek kare) ve daha düşük `jarvis_threshold` (art arda 2 kare). İsteğe bağlı özel `.onnx` model yanına yüklenir (`docs/UYANDIRMA-KELIMESI.md`). |
+| VAD | faster-whisper'ın içinde gelen Silero VAD v6 (ek indirme yok), yoksa enerji tabanlı yedek. Söz sonu: 0,8 sn sessizlik, en çok 20 sn, 6 sn hiç konuşmama. |
+| STT | faster-whisper, `language="tr"`. CUDA varsa `large-v3-turbo` float16, yoksa CPU `small` int8. GPU ilk çözümlemede hata verirse (eksik cuBLAS/cuDNN) CPU'ya düşülür. |
+| TTS | Piper `tr_TR-dfki-medium` (erkek: MaryTTS dfki-ot verisi, `gender="male"`). Lisansı CC BY-NC-SA 4.0. Cümle cümle sentez, `speech_rate` → `length_scale`. |
+| Gizlilik | Mikrofon sesi süreç dışına çıkmaz; Claude'a yalnızca tanınan metin gider (testle doğrulandı). Logda metnin kendisi değil uzunluğu yazılır. Mikrofon kapatılınca akış gerçekten kapanır. |
+| Durum makinesi | Değişmedi. ChatService bitince BEKLEMEDE'ye döndüğü için seslendirme aynı döngü adımında BEKLEMEDE → DÜŞÜNÜYOR → KONUŞUYOR geçer (ekranda görünmez). |
+| Sözü kesme | Konuşurken VAD eşiği 0,8'e çıkar, art arda 3 kare (240 ms) ister ve yankı korumasından geçmesi gerekir (enerji kapısı + çalınan sesle korelasyon). Tam bir AEC değildir; kulaklık en iyi sonucu verir. |
+| Konuşma modu | Cevaptan sonra 8 sn uyandırma kelimesi gerekmeden dinlenir. Anlaşılamayan söz bir kez sorulur, ikincisinde sessizce beklemeye dönülür. |
+| Yazılı cevaplar | Yalnızca sesle sorulan sorular seslendirilir; yazılı sohbet sessiz kalır. |
 ## 2026-11-07 — Aşama 9 teknik kararları (paketleme ve kurulum)
 
 | Konu | Karar |
@@ -91,10 +105,8 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 0. Ortam ve mimari ✅
 1. Temel: yapı, ayarlar, loglama, PySide6 iskeleti, durum makinesi ✅ (Linux'ta test edildi, Windows doğrulaması bekliyor: `docs/ASAMA1-TEST-RAPORU.md`)
 2. Claude entegrasyonu: metin sohbeti, yönlendirici, token ve maliyet takibi, bütçe ✅ (sahte API ile test edildi; canlı API testi Windows'ta bekliyor: `docs/ASAMA2-TEST-RAPORU.md`)
-3. Ses motoru: uyandırma kelimesi, STT, TTS, sözü kesme, bekleme
+3. Ses motoru: uyandırma kelimesi, STT, TTS, sözü kesme, bekleme ✅ (Linux'ta sahte ses sürücüsü ve gerçek modellerle test edildi; mikrofon/hoparlör ve Türkçe modeller Windows'ta doğrulanacak: `docs/ASAMA3-TEST-RAPORU.md`)
 4. Hafıza ✅ (sahte API ile test edildi; canlı test Windows'ta bekliyor: `docs/ASAMA4-TEST-RAPORU.md`)
-5. Windows araçları ve izin sistemi
-4. Hafıza
 5. Windows araçları ve izin sistemi ✅ (Linux'ta sahte arka uçlarla test edildi; gerçek Windows testleri `pytest -m windows`: `docs/ASAMA5-TEST-RAPORU.md`)
 6. Orkestrasyon
 7. Profesyonel arayüz

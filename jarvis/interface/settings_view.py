@@ -1,4 +1,4 @@
-"""Ayarlar ekranı (Aşama 2 kapsamı: Claude bağlantısı, model seçimi, bütçe).
+"""Ayarlar ekranı: Claude bağlantısı, model seçimi, bütçe ve (Aşama 3) ses.
 
 Değişiklikler anında doğrulanıp kaydedilir; "Kaydet" düğmesi gerekmez.
 Görsel cilası ve diğer bölümler Aşama 7'de eklenecek.
@@ -16,6 +16,7 @@ from jarvis.core.events import Topics
 from jarvis.interface.dialogs import ApiKeyDialog
 from jarvis.interface.startup_settings import StartupSection  # Aşama 9
 from jarvis.interface.theme import C
+from jarvis.interface.voice_panel import VoicePanel
 from jarvis.paths import AppPaths
 
 MODEL_CHOICES = [
@@ -109,6 +110,11 @@ class SettingsView(QWidget):
                       "Tutarlar tahminidir, kesin fatura Anthropic Console'dadır.", objectName="Not")
         hint.setWordWrap(True)
         lay.addWidget(hint)
+
+        # --- Ses (Aşama 3) ---
+        lay.addWidget(_section("Ses"))
+        self.voice_panel = VoicePanel(assistant)
+        lay.addWidget(self.voice_panel)
 
         # --- Başlangıç ve pencere (Aşama 9) ---
         self.startup = StartupSection(assistant)

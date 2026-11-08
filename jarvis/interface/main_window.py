@@ -199,7 +199,9 @@ class PanelPage(QWidget):
         self.input.returnPressed.connect(self._send)
         self.talk = QPushButton("Konuş", objectName="KonusDugmesi")
         self.talk.setEnabled(False)
-        self.talk.setToolTip("Sesli konuşma Aşama 3'te açılacak")
+        self.talk.setToolTip("Ses motoru hazırlanıyor…")
+        self.talk.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.talk.clicked.connect(self.assistant.voice.activate)
         vol_icon = QLabel()
         vol_icon.setPixmap(icon("ses", C.SIS, size=18).pixmap(18, 18))
         self.volume = QSlider(Qt.Orientation.Horizontal)
@@ -241,12 +243,22 @@ class PanelPage(QWidget):
         self.mic_button.setChecked(not enabled)
         color = C.KIZIL if enabled else C.SIS
         self.mic_button.setIcon(icon("mikrofon" if enabled else "mikrofon_kapali", color, size=22, stroke=1.8))
-        self.mic_button.setToolTip("Mikrofonu tamamen kapat" if enabled else "Mikrofonu aç")
-        self.mic_pill.setText("Mikrofon: izinli" if enabled else "Mikrofon: kapalı")
-        self.mic_pill.setToolTip(
-            "Ses motoru Aşama 3'te eklenecek. Şu an mikrofon dinlenmiyor."
-            if enabled else "Mikrofon kapalı. Ses motoru eklendiğinde de dinleme yapılmaz."
-        )
+        self.mic_button.setToolTip("Mikrofonu tamamen kapat (Ctrl+Shift+M)" if enabled else "Mikrofonu aç")
+        self.set_voice_status(self.assistant.voice.status)
+
+    # --- Aşama 3: ses motoru durumu ---
+    def set_voice_status(self, status) -> None:  # noqa: ANN001
+        """Mikrofon işareti gerçek durumu gösterir: kapalı / dinlemiyor / uyandırma bekleniyor / dinliyor."""
+        muted = not self.assistant.settings.voice.microphone_enabled
+        text = "Kapalı" if muted else status.mic.value
+        self.mic_pill.setText(f"Mikrofon: {text[0].lower() + text[1:]}")
+        self.mic_pill.setToolTip("Mikrofon kapalı; hiçbir şey dinlenmiyor." if muted else status.detail)
+        listening = status.mic.name == "LISTENING" and not muted
+        self.mic_pill.setStyleSheet(f"color: {C.CYAN}; border-color: rgba(82,228,242,0.5);" if listening else "")
+        self.talk.setEnabled(status.ready and not muted)
+        self.talk.setToolTip("Uyandırma kelimesi demeden konuş. Dinlerken basarsan hemen gönderir."
+                             if status.ready and not muted else
+                             ("Mikrofon kapalı." if muted else status.detail))
 
     def _close_banner(self) -> None:
         self.banner.hide()
@@ -336,6 +348,11 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.CONFIRM_REQUEST, self._on_confirm)
         bus.subscribe(Topics.MEMORY_PENDING, self._on_memory_pending)  # Aşama 4
         bus.subscribe(Topics.TOOL_CONFIRM, self._on_tool_confirm)  # Aşama 5
+        # --- Aşama 3: ses motoru ---
+        bus.subscribe(Topics.VOICE_STATUS, self.panel.set_voice_status)
+        bus.subscribe(Topics.VOICE_LEVEL, self._on_voice_level)
+        bus.subscribe(Topics.VOICE_DOWNLOAD, self._on_voice_download)
+        bus.subscribe(Topics.VOICE_ERROR, lambda msg: self.panel.banner.show_message(msg, "uyari"))
 
         if assistant.store.load_warning:
             self.panel.banner.show_message(assistant.store.load_warning, "uyari")
@@ -404,8 +421,37 @@ class MainWindow(QMainWindow):
 
     def _on_state(self, change: StateChange) -> None:
         self.panel.reactor.set_state(change.new, change.detail if change.new is not AssistantState.ERROR else "")
+        if change.new not in (AssistantState.LISTENING, AssistantState.SPEAKING):
+            self.panel.reactor.set_level(None)
         if change.new is AssistantState.ERROR and change.detail:
             self.panel.banner.show_message(change.detail, "hata")
+
+    # --- Aşama 3: ses motoru ---
+    def _on_voice_level(self, lv) -> None:  # noqa: ANN001
+        """Reaktör dinlerken mikrofonla, konuşurken JARVIS'in sesiyle hareket eder."""
+        st = self.assistant.state.state
+        if ((st is AssistantState.LISTENING and lv.source == "mic")
+                or (st is AssistantState.SPEAKING and lv.source == "tts")):
+            self.panel.reactor.set_level(lv.level)
+
+    def _on_voice_download(self, p) -> None:  # noqa: ANN001
+        """İlk açılıştaki model indirmesi bantta gösterilir; başka bir uyarının üstüne yazmaz."""
+        banner = self.panel.banner
+        ours = banner.property("ses_indirme") is True
+        if banner.isVisible() and not ours:
+            return
+        if p.finished:
+            if ours:
+                banner.setProperty("ses_indirme", False)
+                banner.hide()
+            return
+        if p.error:
+            banner.setProperty("ses_indirme", False)
+            banner.show_message(p.text(), "uyari", "Tekrar dene",
+                                lambda: self.assistant.spawn(self.assistant.voice.restart(), "voice-restart"))
+            return
+        banner.setProperty("ses_indirme", True)
+        banner.show_message(p.text(), "bilgi")
 
     def demo_next_state(self) -> None:
         sm = self.assistant.state

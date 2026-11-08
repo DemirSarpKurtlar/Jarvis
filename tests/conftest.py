@@ -35,6 +35,8 @@ class MemoryKeyring(KeyringBackend):
 @pytest.fixture(autouse=True)
 def jarvis_home(tmp_path, monkeypatch, request):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis_home"))
+    # Ses motoru testlerde gerçek mikrofona dokunmaz ve model indirmez (ses testleri sahte parça verir)
+    monkeypatch.setenv("JARVIS_VOICE", "off")
     if not request.node.get_closest_marker("live"):
         monkeypatch.delenv("JARVIS_ANTHROPIC_API_KEY", raising=False)
     return tmp_path / "jarvis_home"
@@ -55,6 +57,8 @@ def memory_keyring(request):
 
 # --- Aşama 5: Windows'a özgü testler yalnızca Windows'ta çalışır ---
 def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ANN201
+    """`windows` işaretli testler başka sistemlerde kendiliğinden atlanır.
+    `models` testleri model yoksa kendi içinde atlanır (tests/model_assets.py)."""
     if sys.platform == "win32":
         return
     skip = pytest.mark.skip(reason="yalnızca Windows'ta çalışır")

@@ -26,6 +26,8 @@ from jarvis.paths import AppPaths
 from jarvis.security.credentials import CredentialStore
 from jarvis.storage.database import Database
 from jarvis.system.monitor import SystemMonitor
+from jarvis.voice.components import ComponentLoader
+from jarvis.voice.voice_manager import VoiceManager
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +43,7 @@ class Assistant:
         credentials: CredentialStore | None = None,
         client_factory: ClientFactory = ClaudeClient,
         tool_context=None,  # noqa: ANN001  Aşama 5: testlerde sahte araç arka uçları
+        voice_loader: ComponentLoader | None = None,
     ) -> None:
         self.store = store
         self.bus = bus or EventBus()
@@ -67,6 +70,10 @@ class Assistant:
         self.audit = self.tool_service.audit         # AuditLogger
         self.chat.tools = self.tool_service          # Aşama 6: Claude araçları kullanabilir
         # --- Aşama 5 sonu ---
+        # Aşama 3: ses motoru (kendi thread'leri var; ortak executor'ı meşgul etmez).
+        # Tanınan metin yazılı metinle aynı yoldan gider: önce yerel komutlar, sonra Claude.
+        self.voice = VoiceManager(store, self.bus, self.state, self.chat, voice_loader,
+                                  send=self._handle_text)
 
     @property
     def settings(self) -> Settings:
@@ -84,6 +91,8 @@ class Assistant:
         self._tasks.append(asyncio.create_task(self.memory.start(), name="memory-start"))  # Aşama 4
         self.tool_service.bind_loop(self._loop)  # Aşama 5
         self._tasks.append(asyncio.create_task(self.tool_service.warm_up(), name="apps-index"))
+        # Ses modelleri ilk açılışta indirilir: arka planda, pencereyi bekletmeden
+        self._tasks.append(asyncio.create_task(self.voice.start(), name="voice-start"))
         self.running = True
         log.info("Asistan çekirdeği başlatıldı")
 
@@ -169,6 +178,7 @@ class Assistant:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        await self.voice.shutdown()   # mikrofon ve hoparlör akışları kapanır
         await self.chat.shutdown()
         self.tool_service.shutdown()  # Aşama 5
         if self._monitor is not None:

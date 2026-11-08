@@ -11,8 +11,8 @@ from jarvis.core.chat_service import ChatDone, ChatStarted
 from jarvis.interface.format import usd
 from jarvis.interface.theme import C
 
-WELCOME = ("Merhaba! Yazarak benimle konuşabilirsin. Sesli konuşma bir sonraki aşamada geliyor, "
-           "bilgisayarını yönetme yeteneğim de ardından eklenecek.")
+WELCOME = ("Merhaba! \"Hey Jarvis\" diyerek, Konuş düğmesine basarak ya da yazarak benimle konuşabilirsin. "
+           "Bilgisayarını yönetme yeteneğim sonraki aşamalarda eklenecek.")
 
 
 class ChatView(QWidget):

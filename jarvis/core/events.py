@@ -42,6 +42,12 @@ class Topics:
     TOOL_CONFIRM = "tool.confirm"              # payload: ToolConfirmRequest (security/permission_manager.py)
     TOOL_EXECUTED = "tool.executed"            # payload: ToolResult
     # --- Aşama 5 sonu ---
+    # --- Aşama 3: ses motoru ---
+    VOICE_STATUS = "voice.status"              # payload: VoiceStatus
+    VOICE_LEVEL = "voice.level"                # payload: VoiceLevel (mikrofon ya da konuşma seviyesi)
+    VOICE_TRANSCRIPT = "voice.transcript"      # payload: Transcript (yalnızca tanınan metin)
+    VOICE_ERROR = "voice.error"                # payload: str (kullanıcı mesajı)
+    VOICE_DOWNLOAD = "voice.download"          # payload: DownloadProgress
 
 
 class EventBus:
