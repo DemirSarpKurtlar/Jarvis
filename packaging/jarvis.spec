@@ -93,6 +93,10 @@ OPTIONAL = [
     ("send2trash", False, False, True, "Send2Trash"),
     ("pypdf", False, False, False, "pypdf"),
     ("docx", True, False, False, "python-docx"),
+    # --- BELGE ---
+    ("openpyxl", False, False, True, "openpyxl"),
+    ("et_xmlfile", False, False, False, "et-xmlfile"),
+    # --- BELGE sonu ---
 ]
 
 for module, want_data, want_libs, want_subs, dist in OPTIONAL:

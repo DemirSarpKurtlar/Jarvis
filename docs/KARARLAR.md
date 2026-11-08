@@ -119,3 +119,15 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 Üstteki taslak çubuğundan 7 ses durumu ve silme onayı penceresi denenebilir.
 Son uygulama PySide6 ile yazılacak. Görselleştirici QPainter ile aynı şekilde çizilecek,
 fontlar (Saira ve IBM Plex Sans, OFL lisanslı) uygulamayla birlikte paketlenecek.
+
+## 2026-11-08 — Pano ve belge araçları (BELGE)
+
+| Konu | Karar |
+|---|---|
+| Pano | `read_clipboard` (READ, güvenilmeyen içerik, en çok 10.000 karakter, kısaltılınca açık not) ve `write_clipboard` (SAFE, yazdıktan sonra geri okunup doğrulanır; boş metin panoyu temizler). Windows'ta saf ctypes (CF_UNICODETEXT, gizli sahip pencere); başka sistemlerde Qt `QClipboard`, çağrı ana thread'e sıralı sinyalle taşınır (3 sn zaman sınırı, kilitlenme yok). |
+| Pano gizliliği | Parola yöneticisi işaretli kopyalar (ExcludeClipboardContentFromMonitorProcessing, CanIncludeInClipboardHistory=0, x-kde-passwordManagerHint) hiç okunmaz. Parola/anahtar gibi görünen kısa metin Claude'a gönderilmez; uzun metinde gizli değer içeren satırlar maskelenir. |
+| Word | `create_document` docx'te basit Markdown'ı gerçek Word biçimine çevirir (başlık, madde, numaralı liste, tablo, kalın). `append_to_document` var olan docx/txt/md sonuna ekler: dosya değiştiği için onay ister. |
+| Excel | openpyxl. `create_spreadsheet`: biçimli başlık, sayı/para (₺)/yüzde/tarih tanıma (Türkçe "1.250,50" dahil), baştaki sıfırlar metin kalır, isteğe bağlı TOPLA satırı. Modelden gelen "=..." metinleri formül olarak yazılmaz (formül enjeksiyonu yok); tek formüller JARVIS'in kendi TOPLA'larıdır. Üzerine yazma onay ister. `add_spreadsheet_rows` her zaman onay ister; toplam satırı varsa satırlar üstüne eklenir ve aralık güncellenir; grafik/resim/pivot varsa onay penceresinde kayıp uyarısı; .xlsm değiştirilmez. Dosya Excel'de açıksa anlaşılır hata. |
+| Okuma | `read_file` artık documents.py'yi kullanır: pdf (sayfa işaretleri, sayfa sayısı, boş parola ile şifre çözme), docx (başlık/madde/tablo sırasıyla), xlsx (çalışma sayfaları, hesaplanmamış formül gösterilir), txt/md/csv. Kısaltılınca `note` ve sayfa sayıları. Metin katmanı olmayan PDF "taranmış olabilir, OCR yok" diye dürüstçe bildirilir; PDF'i Claude'a belge bloğu olarak göndermek claude_client.py değişikliği gerektirdiği için yapılmadı. |
+| Son indirilen | `latest_download` (İndirilenler'deki en yeni dosya, türe göre; info/read/open). Yarım inen (.crdownload, .part) ve gizli dosyalar atlanır; açma SAFE'e yükselir, çalıştırılabilir dosyalar açılmaz. |
+| Yerel komutlar | "panoyu temizle", "panoda ne var", "son indirdiğim PDF'i aç". Özetleme/çeviri/düzeltme Claude ister, yerelde işlenmez. |
