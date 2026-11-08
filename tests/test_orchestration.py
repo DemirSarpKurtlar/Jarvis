@@ -47,7 +47,8 @@ def test_claude_receives_registry_tools_and_runs_read_tool(tmp_path):
     done = asyncio.run(go())
     first = api.requests[1]["body"] if api.requests[0]["path"].startswith("/v1/models") else api.requests[0]["body"]
     names = [t["name"] for t in first["tools"]]
-    assert "memory_status" in names and all(t.get("strict") for t in first["tools"] if "input_schema" in t)
+    assert "memory_status" in names
+    assert sum(1 for t in first["tools"] if t.get("strict")) <= 20   # gerçek API sınırı
     assert done.text.endswith("Belleğin yüzde 30 dolu.")
     assert "Yapılan işlemler" in (done.note or "")
     assert AssistantState.EXECUTING in states and states[-1] is AssistantState.STANDBY

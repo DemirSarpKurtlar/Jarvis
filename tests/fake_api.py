@@ -78,6 +78,12 @@ class FakeAPI:
         if request.url.path.startswith("/v1/models/"):
             return httpx2.Response(200, json={"type": "model", "id": request.url.path.rsplit("/", 1)[1],
                                               "display_name": "x", "created_at": "2026-01-01T00:00:00Z"})
+        # Gerçek API ile aynı doğrulama: bir istekte en fazla 20 katı (strict) araç
+        n_strict = sum(1 for t in body.get("tools", []) if isinstance(t, dict) and t.get("strict"))
+        if n_strict > 20:
+            return httpx2.Response(400, json={"type": "error", "error": {
+                "type": "invalid_request_error",
+                "message": f"Too many strict tools ({n_strict}). The maximum number of strict tools supported is 20."}})
         if not self.responses:
             raise AssertionError("Beklenmeyen istek: " + request.url.path)
         r = self.responses.pop(0)

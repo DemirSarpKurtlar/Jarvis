@@ -77,7 +77,8 @@ def test_all_default_tools_are_strict_and_described(tmp_path):
     names = [t["name"] for t in tools]
     assert len(names) == len(set(names))
     for t in tools:
-        assert set(t) == {"name", "description", "input_schema", "strict"} and t["strict"] is True
+        assert set(t) <= {"name", "description", "input_schema", "strict"}
+        assert t.get("strict", True) is True
         nodes = [t["input_schema"]]
         while nodes:
             node = nodes.pop()
@@ -242,3 +243,19 @@ def test_summary_is_capped():
     reg = ToolRegistry()
     reg.register(_spec(handler=lambda a: ToolOutput("ö" * 5000)))
     assert len(run(reg.execute("deneme", {"n": 1, "s": ""})).summary) <= 2001
+
+
+def test_strict_tools_capped_at_api_limit_and_risky_first(tmp_path, monkeypatch):
+    """Gerçek API'de görüldü: 44 katı araç -> 400 'Too many strict tools'. En fazla 20, önce riskliler."""
+    from jarvis.security.permission_manager import Permission
+    from jarvis.tools.registry import MAX_STRICT_TOOLS, ToolSpec
+    # Windows'taki gibi tüm araçlar desteklensin (Linux'ta da 44 araç)
+    monkeypatch.setattr(ToolSpec, "supported", property(lambda self: True))
+    reg = build_registry(make_ctx(tmp_path))
+    tools = reg.to_claude_tools()
+    strict = [t["name"] for t in tools if t.get("strict")]
+    assert len(tools) > MAX_STRICT_TOOLS and len(strict) == MAX_STRICT_TOOLS
+    by_name = {s.name: s for s in reg.specs()}
+    confirm_tools = [t["name"] for t in tools if by_name[t["name"]].permission is Permission.CONFIRM]
+    assert set(confirm_tools[:MAX_STRICT_TOOLS]) <= set(strict)        # onaylı araçlar öncelikli
+    assert reg.to_claude_tools() == tools                                 # sabit çıktı (önbellek)

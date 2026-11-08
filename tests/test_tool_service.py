@@ -58,7 +58,8 @@ async def wait_for(cond, timeout=5.0):
 def test_assistant_exposes_registry(tmp_path):
     a, _ctx, _ = make_assistant(tmp_path)
     assert a.tools.get("open_app") is not None and a.audit is a.tool_service.audit
-    assert all(t["strict"] for t in a.tools.to_claude_tools())
+    tools = a.tools.to_claude_tools()
+    assert 0 < sum(1 for t in tools if t.get("strict")) <= 20  # API sınırı
     a.db.close()
 
 
