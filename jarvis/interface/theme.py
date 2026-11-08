@@ -36,7 +36,7 @@ class StateLook:
 
 
 STATE_LOOKS: dict[AssistantState, StateLook] = {
-    AssistantState.STANDBY: StateLook(C.CYAN, "Beklemede", "Yazarak başlayabilirsin. Sesli uyandırma Aşama 3'te geliyor"),
+    AssistantState.STANDBY: StateLook(C.CYAN, "Beklemede", "\"Hey Jarvis\" de, Konuş'a bas ya da yaz"),
     AssistantState.WAKE_DETECTED: StateLook("#9FF3FA", "Seni duydum", "Dinlemeye geçiyorum"),
     AssistantState.LISTENING: StateLook(C.CYAN, "Dinliyorum", "Konuşman bitince kendim anlarım"),
     AssistantState.PROCESSING: StateLook(C.MENEKSE, "Düşünüyorum", "Cevabı hazırlıyorum"),
@@ -119,6 +119,9 @@ def stylesheet(f: Fonts) -> str:
     #UyariBandi {{ background: rgba(255,90,106,0.08); border: 1px solid rgba(255,90,106,0.45); border-radius: 12px; }}
     #UyariBandi QLabel {{ color: {C.BUZ}; }}
     #UyariBandi[seviye="uyari"] {{ background: rgba(243,182,72,0.07); border-color: rgba(243,182,72,0.45); }}
+    #UyariBandi[seviye="bilgi"] {{ background: rgba(82,228,242,0.06); border-color: rgba(82,228,242,0.40); }}
+    #SesSeviyesi {{ border: 1px solid {C.CELIK}; border-radius: 4px; background: {C.DERINLIK}; max-height: 8px; }}
+    #SesSeviyesi::chunk {{ background: {C.CYAN}; border-radius: 3px; }}
 
     /* Altyazı */
     #Kim {{ color: {C.SIS}; font-size: 12px; }}

@@ -17,6 +17,14 @@ dependencies = [
     "nvidia-ml-py>=12.535",
     "anthropic>=2.6,<3",
     "keyring>=25",
+    # Aşama 3: ses motoru (yerel, ücretsiz)
+    "numpy>=2.0,<3",
+    "sounddevice>=0.5",
+    "onnxruntime>=1.18,<2",
+    "faster-whisper>=1.1,<2",
+    "huggingface-hub>=0.23",
+    "tqdm>=4.60",
+    "piper-tts>=1.3,<2",
 ]
 
 [project.optional-dependencies]
@@ -39,4 +47,8 @@ testpaths = ["tests"]
 qt_api = "pyside6"
 # Canlı (ücretli) API testleri varsayılan olarak çalışmaz: `python -m pytest -m live`
 addopts = "-m 'not live'"
-markers = ["live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)"]
+markers = [
+    "live: gerçek Claude API'sine istek atar (küçük bir ücret doğar)",
+    "models: gerçek ses modeli dosyası ister; yoksa atlanır (JARVIS_DOWNLOAD_MODELS=1 indirir)",
+    "windows: yalnızca Windows'ta çalışır; başka sistemde atlanır",
+]

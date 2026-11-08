@@ -1,6 +1,7 @@
 """Ortak test ayarları: ekransız Qt, her test için ayrı JARVIS_HOME ve bellekte anahtar deposu."""
 
 import os
+import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -34,6 +35,8 @@ class MemoryKeyring(KeyringBackend):
 @pytest.fixture(autouse=True)
 def jarvis_home(tmp_path, monkeypatch, request):
     monkeypatch.setenv("JARVIS_HOME", str(tmp_path / "jarvis_home"))
+    # Ses motoru testlerde gerçek mikrofona dokunmaz ve model indirmez (ses testleri sahte parça verir)
+    monkeypatch.setenv("JARVIS_VOICE", "off")
     if not request.node.get_closest_marker("live"):
         monkeypatch.delenv("JARVIS_ANTHROPIC_API_KEY", raising=False)
     return tmp_path / "jarvis_home"
@@ -50,3 +53,14 @@ def memory_keyring(request):
     keyring.set_keyring(kr)
     yield kr
     keyring.set_keyring(previous)
+
+
+def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ARG001
+    """`windows` işaretli testler başka sistemlerde kendiliğinden atlanır.
+    `models` testleri model yoksa kendi içinde atlanır (tests/model_assets.py)."""
+    if sys.platform == "win32":
+        return
+    skip = pytest.mark.skip(reason="yalnızca Windows'ta çalışır")
+    for item in items:
+        if item.get_closest_marker("windows"):
+            item.add_marker(skip)

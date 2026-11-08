@@ -24,6 +24,8 @@ from jarvis.paths import AppPaths
 from jarvis.security.credentials import CredentialStore
 from jarvis.storage.database import Database
 from jarvis.system.monitor import SystemMonitor
+from jarvis.voice.components import ComponentLoader
+from jarvis.voice.voice_manager import VoiceManager
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +40,7 @@ class Assistant:
         data_dir: Path | None = None,
         credentials: CredentialStore | None = None,
         client_factory: ClientFactory = ClaudeClient,
+        voice_loader: ComponentLoader | None = None,
     ) -> None:
         self.store = store
         self.bus = bus or EventBus()
@@ -54,6 +57,8 @@ class Assistant:
         self.db = Database((data_dir or AppPaths.resolve().data_dir) / "jarvis.db")
         self.chat = ChatService(store, self.bus, self.state, self.db, self._executor,
                                 credentials, client_factory)
+        # Aşama 3: ses motoru (kendi thread'leri var; ortak executor'ı meşgul etmez)
+        self.voice = VoiceManager(store, self.bus, self.state, self.chat, voice_loader)
 
     @property
     def settings(self) -> Settings:
@@ -68,6 +73,8 @@ class Assistant:
         self._tasks.append(asyncio.create_task(self._monitor_loop(), name="system-monitor"))
         # Anahtar doğrulaması ağ beklerken arayüz açılışını geciktirmesin
         self._tasks.append(asyncio.create_task(self.chat.start(), name="claude-start"))
+        # Ses modelleri ilk açılışta indirilir: arka planda, pencereyi bekletmeden
+        self._tasks.append(asyncio.create_task(self.voice.start(), name="voice-start"))
         self.running = True
         log.info("Asistan çekirdeği başlatıldı")
 
@@ -142,6 +149,7 @@ class Assistant:
             t.cancel()
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
+        await self.voice.shutdown()   # mikrofon ve hoparlör akışları kapanır
         await self.chat.shutdown()
         if self._monitor is not None:
             self._monitor.close()

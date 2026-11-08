@@ -72,6 +72,22 @@ class VoiceSettings(_Section):
     speech_rate: float = Field(1.0, ge=0.5, le=2.0)
     wake_words: list[str] = Field(default_factory=lambda: ["hey_jarvis", "jarvis"])
     wake_sensitivity: float = Field(0.5, ge=0.0, le=1.0)
+    # --- Aşama 3: ses motoru (yalnızca alan eklendi; hepsinin güvenli varsayılanı var) ---
+    # Tek başına "Jarvis" için hazır modelin (daha düşük) eşiği; özel model verilirse ona da uygulanır
+    jarvis_threshold: float = Field(0.35, ge=0.05, le=1.0)
+    # Kullanıcının eğittiği openWakeWord .onnx modeli (docs/UYANDIRMA-KELIMESI.md)
+    custom_wake_model_path: str | None = None
+    # "auto": CUDA varsa large-v3-turbo, yoksa small. Ya da faster-whisper model adı
+    stt_model: str = Field("auto", min_length=1)
+    stt_device: Literal["auto", "cpu", "cuda"] = "auto"
+    tts_voice: str = Field("tr_TR-dfki-medium", min_length=1)
+    silence_timeout_s: float = Field(0.8, ge=0.3, le=3.0)
+    max_utterance_s: float = Field(20.0, ge=3.0, le=60.0)
+    no_speech_timeout_s: float = Field(6.0, ge=2.0, le=30.0)
+    follow_up_s: float = Field(8.0, ge=0.0, le=30.0)   # 0: konuşma modu kapalı
+    barge_in: bool = True                               # konuşurken söz kesilebilsin
+    wake_chime: bool = True                             # uyanınca kısa bir ses çal
+    noise_floor_dbfs: float | None = Field(None, ge=-120.0, le=0.0)  # ortam gürültüsü ölçümü
 
 
 class MemorySettings(_Section):
