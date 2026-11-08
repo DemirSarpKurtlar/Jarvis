@@ -1138,6 +1138,11 @@ class OverlayController(QObject):
             bus.subscribe(Topics.SETTINGS_CHANGED, self._on_settings),
             bus.subscribe(Topics.APP_SHUTDOWN, lambda _p: self.shutdown()),
         ]
+        # --- BILGISAYAR: bilgisayar kullanılırken "Esc Esc ile durdur" göstergesi ---
+        from jarvis.interface.agent_indicator import AgentIndicator
+
+        self.agent_indicator = AgentIndicator(bus)
+        # --- BILGISAYAR sonu ---
 
     # ---------- yardımcılar ----------
     @property
@@ -1350,6 +1355,7 @@ class OverlayController(QObject):
         for u in self._unsubs:
             u()
         self._unsubs.clear()
+        self.agent_indicator.shutdown()  # BILGISAYAR
         self._end_session()
         self._hide_timer.stop()
         self._hold_timer.stop()

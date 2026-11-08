@@ -25,6 +25,7 @@ from jarvis.core.events import EventBus, Topics
 from jarvis.core.state import AssistantState, StateMachine
 from jarvis.security.credentials import CredentialError, CredentialStore, looks_like_anthropic_key
 from jarvis.storage.database import Database
+from jarvis.agent.service import AGENT_KEY, ComputerAgent  # BILGISAYAR
 
 log = logging.getLogger(__name__)
 
@@ -83,7 +84,23 @@ class ChatService:
         self.busy = False
         self._client: ClaudeClient | None = None
         self.memory = None  # Aşama 4: isteğe bağlı MemoryService (Assistant bağlar)
+        # --- BILGISAYAR: ekrana bakıp fare/klavye kullanan ajan (use_computer aracı) ---
+        self.computer = ComputerAgent(store, bus, state, self.tracker, lambda: self._client, self.publish_usage)
+        # --- BILGISAYAR sonu ---
         self.tools = None   # Aşama 6: isteğe bağlı ToolService (Assistant bağlar); Claude araç kullanır
+
+    # --- BILGISAYAR: araç hizmeti bağlanınca ajan da araç bağlamına eklenir ---
+    @property
+    def tools(self):  # noqa: ANN201
+        return self._tools
+
+    @tools.setter
+    def tools(self, value) -> None:  # noqa: ANN001
+        self._tools = value
+        if value is not None and getattr(value, "ctx", None) is not None:
+            value.ctx.extra[AGENT_KEY] = self.computer
+            self.computer.registry = value.registry
+    # --- BILGISAYAR sonu ---
 
     @property
     def registry(self) -> ModelRegistry:
@@ -104,6 +121,7 @@ class ChatService:
 
     # ---------- anahtar ve bağlantı ----------
     async def start(self) -> None:
+        self.computer.bind_loop(asyncio.get_running_loop())  # BILGISAYAR
         await self.publish_usage()
         # SDK'yı arka plan thread'inde önceden yükle: arayüz thread'i beklemesin
         await self._run(importlib.import_module, "anthropic")
@@ -272,7 +290,9 @@ class ChatService:
         """Claude'a gidecek araç listesi ve çağrıları güvenlik katmanından geçiren yürütücü."""
         if self.tools is None or not self.store.settings.tools.claude_can_use_tools:
             return None, None
-        tools = self.tools.registry.to_claude_tools()
+        self.computer.bind_loop(asyncio.get_running_loop())  # BILGISAYAR
+        # BILGISAYAR: çekirdek dışı araçlar ertelenir, Claude gerektiğinde araç aramasıyla bulur (token tasarrufu)
+        tools = self.tools.registry.to_claude_tools(tool_search=True)
 
         async def execute(name: str, args: dict) -> ToolOutcome:
             reg_spec = self.tools.registry.get(name)
@@ -299,6 +319,7 @@ class ChatService:
             return None
 
     async def shutdown(self) -> None:
+        self.computer.shutdown()  # BILGISAYAR
         if self.memory is not None:
             await self.memory.shutdown(self.conversation.conversation_id)
         await self._close_client()

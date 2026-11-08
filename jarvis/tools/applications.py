@@ -35,6 +35,7 @@ from jarvis.tools.processes import protection_reason, terminate
 from jarvis.tools.registry import (NotSupportedError, ToolContext, ToolError, ToolOutput, ToolRegistry, ToolSpec,
                                    WINDOWS_ONLY)
 from jarvis.tools.text import consonant_skeleton, fold, phonetic_key, suffix_variants
+from jarvis.tools import game_launchers  # BILGISAYAR: Riot, Epic, Xbox oyunları
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,9 @@ class AppEntry:
 
 
 _SOURCE_RANK = {"builtin": 5, "apps_folder": 4, "start_menu": 3, "steam": 3, "app_paths": 2, "uninstall": 0}
+# --- BILGISAYAR: başlatıcı kayıtları Başlat menüsü kısayolundan önce gelir (doğru argümanlarla açılır) ---
+_SOURCE_RANK.update({"riot": 4, "epic": 4})
+# --- BILGISAYAR sonu ---
 
 # Windows ile gelen uygulamalar: adı dil fark etmeksizin bulunabilsin
 BUILTIN_APPS: tuple[AppEntry, ...] = (
@@ -265,6 +269,7 @@ _VOCAB_NOISE = re.compile(
     r"crash ?report|prerequisites|^windows (?!media)|^microsoft (?!edge|teams|word|excel|powerpoint|outlook|"
     r"onenote|store))")
 _VOCAB_SOURCES = {"steam": 0, "start_menu": 1, "apps_folder": 1, "builtin": 3}   # App Paths: exe adları
+_VOCAB_SOURCES.update({"riot": 0, "epic": 0})  # BILGISAYAR
 
 
 def vocabulary_names(entries: list[AppEntry], limit: int = 80) -> list[str]:
@@ -498,6 +503,14 @@ def discover_apps() -> list[AppEntry]:
             log.info("Uygulama keşfi: %s -> %d kayıt", name, len(found))
         except Exception:  # noqa: BLE001
             log.warning("Uygulama keşfi başarısız: %s", name, exc_info=True)
+    # --- BILGISAYAR: Riot/Epic oyunları ve Xbox (Mağaza) oyunlarının işaretlenmesi ---
+    entries += game_launchers.discover_launcher_games()
+    try:
+        entries = game_launchers.mark_xbox_games(entries,
+                                                 game_launchers.xbox_game_families(game_launchers.read_appx_packages()))
+    except Exception:  # noqa: BLE001
+        log.warning("Xbox oyunları işaretlenemedi", exc_info=True)
+    # --- BILGISAYAR sonu ---
     return entries
 
 
@@ -627,6 +640,12 @@ class AppTools:
     def _open(self, target: str) -> None:
         if self.ctx.opener is None:
             raise NotSupportedError()
+        # --- BILGISAYAR: Riot oyunları Riot Client'a argümanla verilir (URI değil) ---
+        if target.startswith(game_launchers.RIOT_SCHEME):
+            launcher = self.ctx.extra.get("riot_launcher") or game_launchers.launch_riot
+            launcher(target)
+            return
+        # --- BILGISAYAR sonu ---
         self.ctx.opener(target)
 
     def _resolve(self, name: str, kind: str | None = None) -> AppEntry:
@@ -740,11 +759,17 @@ class AppTools:
         games = [e for e in self.index.entries() if e.kind == "game"]
         names = sorted({g.name for g in games}, key=str.lower)
         if not names:
-            return ToolOutput("Kurulu oyun bulamadım (Steam kütüphanesi ve Başlat menüsü tarandı).", [])
+            return ToolOutput("Kurulu oyun bulamadım (Steam, Epic, Riot, Xbox ve Başlat menüsü tarandı).", [])
         return ToolOutput(f"{len(names)} oyun buldum: " + ", ".join(names[:8]) + ("…" if len(names) > 8 else "."),
                           names[: args["limit"]])
 
     def prepare_game(self, args: dict) -> dict:
+        # --- BILGISAYAR: oyun olarak işaretlenmemiş Mağaza (Xbox) oyunları da adıyla açılabilsin ---
+        if self.index.best(args["name"], kind="game") is None:
+            other = self.index.best(args["name"])
+            if other is not None and other.source == "apps_folder" and not is_sensitive(other):
+                return {**args, "_entry": other}
+        # --- BILGISAYAR sonu ---
         return {**args, "_entry": self._resolve(args["name"], kind="game")}
 
     def launch_game(self, args: dict) -> ToolOutput:
@@ -835,13 +860,15 @@ def register(reg: ToolRegistry, ctx: ToolContext) -> AppTools:
 
     reg.register(ToolSpec(
         name="list_games", title="Oyunları listele", category="uygulama", platforms=WINDOWS_ONLY,
-        description="Kurulu oyunları listeler (Steam ve Başlat menüsü). / Lists installed games (Steam, Start menu).",
+        description=("Kurulu oyunları listeler (Steam, Epic, Riot, Xbox, Başlat menüsü). / Lists installed games "  # BILGISAYAR
+                     "(Steam, Epic, Riot, Xbox, Start menu)."),
         input_schema=js.obj(limit=js.integer("En çok sonuç / max results", 1, 300)),
         permission=Permission.READ, handler=t.list_games))
 
     reg.register(ToolSpec(
         name="launch_game", title="Oyun başlat", category="uygulama", platforms=WINDOWS_ONLY,
-        description="Kurulu bir oyunu adıyla başlatır (Steam: steam://rungameid). / Launches an installed game by name.",
+        description=("Kurulu bir oyunu adıyla başlatır (Steam, Epic, Riot: VALORANT/LoL, Xbox). / Launches an "  # BILGISAYAR
+                     "installed game by name (Steam, Epic, Riot, Xbox)."),
         input_schema=js.obj(name=js.string("Oyun adı / game name", 200, 1)),
         permission=Permission.SAFE, handler=t.launch_game, prepare=t.prepare_game))
 

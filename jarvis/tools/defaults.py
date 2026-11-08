@@ -15,6 +15,7 @@ from jarvis.security.audit_logger import AuditLogger
 from jarvis.security.permission_manager import PermissionManager
 from jarvis.tools import applications, files, hardware, processes, scheduler, system_info, windows_actions
 from jarvis.tools.registry import ToolContext, ToolRegistry
+from jarvis.agent import service as computer_agent  # BILGISAYAR
 
 
 def default_context(sandbox, snapshot: Callable = lambda: None) -> ToolContext:  # noqa: ANN001
@@ -36,6 +37,7 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     files.register(reg, ctx, **({"trash": trash} if trash else {}))
     windows_actions.register(reg, ctx, **(action_backends or {}))
     scheduler.register(reg, ctx)
+    computer_agent.register(reg, ctx)  # BILGISAYAR: use_computer
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
     return reg
