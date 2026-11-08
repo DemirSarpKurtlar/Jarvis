@@ -34,6 +34,7 @@ from jarvis.interface.dialogs import ask_budget, ask_tool_confirmation
 from jarvis.interface.memory_view import MemoryView
 from jarvis.interface.settings_view import SettingsView
 from jarvis.interface.system_view import SystemView  # Aşama 5
+from jarvis.interface.automation_view import AutomationView  # Aşama 6
 from jarvis.interface.telemetry_panel import TelemetryPanel
 from jarvis.interface.theme import C, Fonts
 from jarvis.interface.visualizer import ReactorWidget
@@ -50,9 +51,7 @@ NAV_ITEMS = [
 ]
 
 # Henüz yapılmamış bölümler: sahte içerik yerine dürüst bir açıklama gösterilir
-COMING = {
-    "otomasyon": ("Otomasyon", "Rutinler ve zamanlanmış görevler Aşama 6'da geliyor."),
-}
+COMING: dict[str, tuple[str, str]] = {}  # tüm bölümler hazır
 
 DEMO_SEQUENCE = [
     (AssistantState.WAKE_DETECTED, ""),
@@ -306,6 +305,8 @@ class MainWindow(QMainWindow):
         self.pages["hafiza"] = self.memory_view
         self.system_view = SystemView(assistant)  # Aşama 5: gerçek Sistem ekranı
         self.pages["sistem"] = self.system_view
+        self.automation_view = AutomationView(assistant)  # Aşama 6
+        self.pages["otomasyon"] = self.automation_view
         for key, (title, text) in COMING.items():
             self.pages[key] = ComingSoonPage(title, text)
         for key in ("konusmalar", "hafiza", "sistem", "otomasyon", "ayarlar"):
