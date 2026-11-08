@@ -143,6 +143,10 @@ WHISPER_REQUIRED = ("config.json", "model.bin", "tokenizer.json")
 
 
 def default_models_dir() -> Path:
+    """`JARVIS_MODELS_DIR` verilirse o klasör (CI önbelleği, taşınabilir kurulum), yoksa veri klasörü/models."""
+    env = os.environ.get("JARVIS_MODELS_DIR")
+    if env:
+        return Path(env).expanduser()
     return AppPaths.resolve().data_dir / "models"
 
 

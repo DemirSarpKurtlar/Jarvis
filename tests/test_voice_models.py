@@ -285,3 +285,83 @@ def test_real_turkish_voice_and_whisper_round_trip():
     tr = stt.transcribe(pcm)
     low = tr.text.lower()
     assert "merhaba" in low and ("hava" in low or "güzel" in low), tr.text
+
+
+@pytest.mark.models
+def test_real_models_full_voice_loop(tmp_path):
+    """Gerçek uyandırma + Silero VAD + faster-whisper + Türkçe Piper, gerçek VoiceManager ve ChatService
+    (sahte API). Yalnızca mikrofon/hoparlör sürücüsü sahte: mikrofona Piper'ın ürettiği ses verilir."""
+    import asyncio
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from tests.fake_api import FakeAPI, text_stream
+    from tests.voice_fakes import FakeBackend, StaticLoader
+    from jarvis.config.settings import SettingsStore
+    from jarvis.core.chat_service import ChatService
+    from jarvis.core.events import EventBus, Topics
+    from jarvis.core.state import AssistantState as S, StateMachine
+    from jarvis.security.credentials import CredentialStore
+    from jarvis.storage.database import Database
+    from jarvis.voice.audio_io import AudioPlayer, MicrophoneStream
+    from jarvis.voice.components import VoiceComponents
+    from jarvis.voice.stt import WhisperSTT, choose
+    from jarvis.voice.tts import PiperTTS
+    from jarvis.voice.vad import SileroVad
+    from jarvis.voice.voice_manager import Mode, VoiceManager
+    from jarvis.voice.wake_word import OnnxWakeWordModel, WakeWordDetector
+
+    mel, emb, ww = model_assets.need_files(OWW_MELSPEC, OWW_EMBEDDING, OWW_HEY_JARVIS)
+    en = PiperTTS(model_assets.english_voice())
+    tr = PiperTTS(model_assets.turkish_voice())
+    wdir = model_assets.whisper()
+    stt = WhisperSTT(wdir, choose(wdir.name, "cpu"))
+    stt.load()
+
+    def pcm(tts, text):  # noqa: ANN001, ANN202
+        return to_int16(StreamResampler(tts.sample_rate, 16000).process(tts.synthesize(text)) * 0.6)
+
+    def gap(s):  # noqa: ANN001, ANN202
+        return np.zeros(int(16000 * s), np.int16)
+
+    mic_audio = np.concatenate([gap(1.0), pcm(en, "Hey Jarvis."), gap(0.3), pcm(tr, "Bugün hava nasıl?"), gap(2.0)])
+
+    store = SettingsStore(tmp_path / "s.json")
+    store.load()
+    store.settings.voice.follow_up_s = 0.0
+    store.settings.voice.wake_chime = False
+    CredentialStore().set_anthropic_key("sk-ant-api03-" + "D" * 40)
+    api = FakeAPI([text_stream(["Bugün hava güneşli ve ılık."])])
+    bus, state = EventBus(), StateMachine()
+    state.add_listener(lambda ch: bus.publish(Topics.STATE_CHANGED, ch))
+    chat = ChatService(store, bus, state, Database(tmp_path / "j.db"), ThreadPoolExecutor(2),
+                       client_factory=lambda key, max_retries=0: api.client(key, max_retries=0))
+    backend = FakeBackend(speed=8)
+    comps = VoiceComponents(SileroVad(), lambda: MicrophoneStream(backend), AudioPlayer(backend),
+                            WakeWordDetector(OnnxWakeWordModel(mel, emb, {"hey_jarvis": ww}), 0.5, 0.35),
+                            stt, tr, stt_label=stt.label)
+    vm = VoiceManager(store, bus, state, chat, StaticLoader(comps), sleep=lambda s: None)
+    transcripts = []
+    bus.subscribe(Topics.VOICE_TRANSCRIPT, transcripts.append)
+    history = []
+    state.add_listener(lambda ch: history.append(ch.new))
+
+    async def go():
+        bus.bind_loop(asyncio.get_running_loop())
+        await chat.start()
+        await vm.start()
+        assert vm.processor.mode is Mode.WAKE
+        backend.feed([mic_audio[i:i + FRAME_SAMPLES]
+                      for i in range(0, len(mic_audio) - FRAME_SAMPLES, FRAME_SAMPLES)])
+        end = time.monotonic() + 60
+        while not (S.SPEAKING in history and state.state is S.STANDBY):
+            assert time.monotonic() < end, history
+            await asyncio.sleep(0.05)
+        await vm.shutdown()
+        await chat.shutdown()
+
+    asyncio.run(go())
+    assert transcripts and "hava" in transcripts[0].text.lower(), transcripts
+    sent = [r for r in api.requests if r["path"] == "/v1/messages"][0]["body"]["messages"][-1]["content"]
+    assert sent == transcripts[0].text and "jarvis" not in sent.lower()
+    assert backend.played_nonzero_samples() > 0.8 * tr.sample_rate      # Türkçe cevap gerçekten çalındı

@@ -14,6 +14,7 @@ from jarvis.core.assistant import Assistant
 from jarvis.core.chat_service import ChatService, ClaudeStatus
 from jarvis.core.events import Topics
 from jarvis.interface.dialogs import ApiKeyDialog
+from jarvis.interface.startup_settings import StartupSection  # Aşama 9
 from jarvis.interface.theme import C
 from jarvis.interface.voice_panel import VoicePanel
 from jarvis.paths import AppPaths
@@ -114,6 +115,10 @@ class SettingsView(QWidget):
         lay.addWidget(_section("Ses"))
         self.voice_panel = VoicePanel(assistant)
         lay.addWidget(self.voice_panel)
+
+        # --- Başlangıç ve pencere (Aşama 9) ---
+        self.startup = StartupSection(assistant)
+        lay.addWidget(self.startup)
 
         # --- Dosyalar ---
         lay.addWidget(_section("Dosyalar"))

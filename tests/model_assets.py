@@ -1,7 +1,8 @@
 """Gerçek model dosyası gerektiren testler (`@pytest.mark.models`) için yardımcılar.
 
-Modeller `JARVIS_TEST_MODELS_DIR` (varsayılan: depo kökünde `.test-models/`) altında aranır.
-Yoksa test atlanır; `JARVIS_DOWNLOAD_MODELS=1` verilirse önce indirilir (CI böyle çalışır):
+Modeller `JARVIS_TEST_MODELS_DIR`, yoksa `JARVIS_MODELS_DIR` (CI), yoksa depo kökünde `.test-models/`
+altında aranır. Yoksa test atlanır. Önceden indirmek için `python scripts/fetch_models.py` (CI böyle yapar),
+ya da `JARVIS_DOWNLOAD_MODELS=1` ile test sırasında indirilir:
 
     JARVIS_DOWNLOAD_MODELS=1 python -m pytest -m models -v
 
@@ -20,7 +21,8 @@ import pytest
 from jarvis.voice.models import ModelError, ModelFile, ModelManager
 
 ROOT = Path(__file__).resolve().parent.parent
-MODELS_DIR = Path(os.environ.get("JARVIS_TEST_MODELS_DIR") or ROOT / ".test-models")
+MODELS_DIR = Path(os.environ.get("JARVIS_TEST_MODELS_DIR") or os.environ.get("JARVIS_MODELS_DIR")
+                  or ROOT / ".test-models")
 DOWNLOAD = os.environ.get("JARVIS_DOWNLOAD_MODELS") == "1"
 
 # "hey jarvis" sesini üretmek için İngilizce erkek Piper sesi (GitHub, piper v0.0.2 sürümü)

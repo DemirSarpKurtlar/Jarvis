@@ -20,3 +20,6 @@ settings.json
 .vscode/
 .idea/
 .test-models/
+
+# Claude Code çalışma kopyaları
+.claude/

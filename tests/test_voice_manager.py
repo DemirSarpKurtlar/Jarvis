@@ -501,3 +501,45 @@ def test_startup_does_not_block_and_shutdown_cancels_slow_loading(tmp_path):
 
     asyncio.run(go())
     assert not h.backend.active_inputs and h.vm.mic is None
+
+
+# ---------- Assistant ile: sesli komut, yazılı metinle aynı yoldan ----------
+def test_voice_local_command_runs_without_claude_and_is_spoken(tmp_path, monkeypatch):
+    """"Jarvis, Notepad'i aç" sesle: yerel komut Claude'suz çalışır, sonucu sesli söylenir."""
+    from jarvis.core.assistant import Assistant
+    from jarvis.paths import AppPaths
+    from jarvis.tools import registry as regmod
+    from tests.tool_fakes import make_ctx
+
+    monkeypatch.setattr(regmod, "CURRENT_PLATFORM", "win32")
+    store = SettingsStore(AppPaths.resolve().settings_file)
+    store.load()
+    store.settings.voice.follow_up_s = 0.0
+    store.settings.voice.wake_chime = False
+    api = FakeAPI()
+    backend = FakeBackend()
+    stt, tts = FakeSTT(["Not defterini aç."]), FakeTTS(0.1)   # Whisper small'ın gerçek çıktısı
+    comps = VoiceComponents(vad=EnergyVad(-70), mic_factory=lambda: MicrophoneStream(backend),
+                            player=AudioPlayer(backend), wake=WakeWordDetector(MarkerWakeModel(), 0.5, 0.35),
+                            stt=stt, tts=tts, stt_label="sahte")
+    ctx = make_ctx(tmp_path)
+    a = Assistant(store, sample_interval_s=0.5, data_dir=tmp_path / "data", tool_context=ctx,
+                  client_factory=lambda key, max_retries=0: api.client(key, max_retries=0),
+                  voice_loader=StaticLoader(comps))
+    history = []
+    a.state.add_listener(lambda ch: history.append(ch.new))
+
+    async def go():
+        await a.start()
+        await until(lambda: a.voice.processor is not None and a.voice.processor.mode is Mode.WAKE)
+        backend.feed(wake_word(1))
+        await until(lambda: a.state.state is S.LISTENING)
+        backend.feed(speech(8) + silence(12))
+        await until(lambda: tts.sentences and a.state.state is S.STANDBY)
+        await a.shutdown()
+
+    asyncio.run(go())
+    assert ctx.opener.opened == ["notepad.exe"]
+    assert [r for r in api.requests if r["path"] == "/v1/messages"] == []    # Claude'a gidilmedi
+    assert tts.sentences == ["Not Defteri açılıyor."]
+    assert S.EXECUTING in history and S.SPEAKING in history

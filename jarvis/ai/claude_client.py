@@ -15,8 +15,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -29,7 +30,29 @@ log = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "https://api.anthropic.com"
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 MAX_PAUSE_CONTINUATIONS = 3
+MAX_TOOL_ROUNDS = 8          # bir turda en fazla 8 araç turu: sonsuz döngü yok
 WEB_SEARCH_MAX_USES = 3
+TOOL_RESULT_MAX_CHARS = 8000
+
+
+@dataclass(frozen=True)
+class ToolOutcome:
+    """Bir araç çağrısının sonucu (araç kayıt defteri üretir)."""
+
+    content: str          # Claude'a giden içerik (güvenilmeyen veri olarak)
+    is_error: bool = False
+    summary: str = ""     # kullanıcıya gösterilecek kısa Türkçe özet
+
+
+ToolExecutor = Callable[[str, dict], Awaitable[ToolOutcome]]
+
+
+@dataclass(frozen=True)
+class ToolRun:
+    name: str
+    input: dict
+    ok: bool
+    summary: str
 
 
 class ErrorKind(str, Enum):
@@ -106,6 +129,8 @@ class ChatResult:
     refusal_category: str | None = None
     citations: list[tuple[str, str]] = field(default_factory=list)  # (başlık, url)
     fallback_used: bool = False
+    tool_runs: list[ToolRun] = field(default_factory=list)
+    tool_limit_hit: bool = False
 
     @property
     def usage(self) -> TokenUsage:
@@ -195,6 +220,8 @@ class ClaudeClient:
         web_search: bool = False,
         effort: str | None = None,
         on_text: Callable[[str], None] | None = None,
+        client_tools: list[dict] | None = None,
+        tool_executor: ToolExecutor | None = None,
     ) -> ChatResult:
         params: dict = {
             "model": spec.id,
@@ -204,10 +231,13 @@ class ClaudeClient:
             "output_config": {"effort": effort or spec.default_effort},
         }
         betas: list[str] = []
+        tools: list[dict] = list(client_tools or [])
         if web_search and spec.web_search_tool:
-            params["tools"] = [{"type": spec.web_search_tool, "name": "web_search",
-                                "max_uses": WEB_SEARCH_MAX_USES,
-                                "user_location": {"type": "approximate", "country": "TR"}}]
+            tools.append({"type": spec.web_search_tool, "name": "web_search",
+                          "max_uses": WEB_SEARCH_MAX_USES,
+                          "user_location": {"type": "approximate", "country": "TR"}})
+        if tools:
+            params["tools"] = tools
         if spec.server_fallback:
             betas.append(FALLBACK_BETA)
             params["fallbacks"] = "default"
@@ -219,8 +249,11 @@ class ClaudeClient:
         citations: list[tuple[str, str]] = []
         final = None
         request_id: str | None = None
+        tool_runs: list[ToolRun] = []
+        tool_rounds = pauses = 0
+        tool_limit_hit = False
         try:
-            for _ in range(MAX_PAUSE_CONTINUATIONS + 1):
+            while True:
                 extra = {"betas": betas} if betas else {}
                 async with self._client.beta.messages.stream(**params, **extra) as stream:
                     async for event in stream:
@@ -235,10 +268,42 @@ class ClaudeClient:
                 if t:
                     text_parts.append(t)
                 citations += [x for x in c if x not in citations]
-                if final.stop_reason != "pause_turn":
+
+                if final.stop_reason == "pause_turn" and pauses < MAX_PAUSE_CONTINUATIONS:
+                    # Sunucu tarafı araç döngüsü duraklattı: aynı turu kaldığı yerden sürdür (yalnızca ekleme)
+                    pauses += 1
+                    params["messages"] = params["messages"] + [{"role": "assistant", "content": final.content}]
+                    continue
+
+                tool_uses = [b for b in final.content if getattr(b, "type", "") == "tool_use"]
+                # Ret ya da uzunluk sınırında kesilmiş bir araç çağrısı asla çalıştırılmaz
+                if final.stop_reason != "tool_use" or not tool_uses or tool_executor is None:
                     break
-                # Sunucu tarafı araç döngüsü duraklattı: aynı turu kaldığı yerden sürdür
-                params["messages"] = params["messages"] + [{"role": "assistant", "content": final.content}]
+                if tool_rounds >= MAX_TOOL_ROUNDS:
+                    tool_limit_hit = True
+                    log.warning("Araç turu sınırına ulaşıldı (%d)", MAX_TOOL_ROUNDS)
+                    break
+                tool_rounds += 1
+                results = []
+                for block in tool_uses:
+                    args = block.input if isinstance(block.input, dict) else {}
+                    try:
+                        outcome = await tool_executor(block.name, args)
+                    except Exception as exc:  # noqa: BLE001 - araç hatası Claude'a hata olarak döner
+                        log.exception("Araç çalıştırılamadı: %s", block.name)
+                        outcome = ToolOutcome(f"Araç beklenmeyen bir hata verdi: {exc.__class__.__name__}",
+                                              is_error=True, summary=f"{block.name} başarısız oldu")
+                    tool_runs.append(ToolRun(block.name, args, not outcome.is_error, outcome.summary))
+                    content = outcome.content
+                    if len(content) > TOOL_RESULT_MAX_CHARS:
+                        content = content[:TOOL_RESULT_MAX_CHARS] + "\n[...kısaltıldı]"
+                    results.append({"type": "tool_result", "tool_use_id": block.id,
+                                    "content": content, "is_error": outcome.is_error})
+                # Asistan turu (düşünme blokları dahil) değiştirilmeden eklenir, tüm sonuçlar tek mesajda
+                params["messages"] = params["messages"] + [
+                    {"role": "assistant", "content": final.content},
+                    {"role": "user", "content": results},
+                ]
         except anthropic.AnthropicError as exc:
             err = map_error(exc, spec.id)
             log.error("Claude hatası (%s): %s", err.kind.value, err)
@@ -256,6 +321,8 @@ class ClaudeClient:
             refusal_category=getattr(stop_details, "category", None) if final.stop_reason == "refusal" else None,
             citations=citations,
             fallback_used=fallback_used,
+            tool_runs=tool_runs,
+            tool_limit_hit=tool_limit_hit,
         )
         u = result.usage
         log.info("Claude yanıtı: model=%s durma=%s giriş=%d çıkış=%d önbellek_yazma=%d önbellek_okuma=%d "
@@ -263,3 +330,54 @@ class ClaudeClient:
                  u.output_tokens, u.cache_creation_tokens, u.cache_read_tokens, u.web_search_requests,
                  result.cost_usd, result.request_id)
         return result
+
+    # ---- Aşama 4 (hafıza): yapılandırılmış JSON çıktısı, akışsız ----
+    async def complete_json(self, spec: ModelSpec, system: str, user_text: str, schema: dict, *,
+                            effort: str = "low", max_tokens: int = 1500) -> JsonResult:
+        """Kısa, akışsız bir istek; cevap `output_config.format` ile verilen JSON şemasına uyar.
+
+        Haiku'da düşünme kapatılır (ucuz ve hızlı). Ret ya da kesilme durumunda `data` None olur;
+        faturalanan tutar yine de `cost_lines` içinde döner, çağıran kaydetmelidir.
+        """
+        params: dict = {
+            "model": spec.id,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": user_text}],
+            "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
+        }
+        if spec.id.startswith("claude-haiku"):
+            params["thinking"] = {"type": "disabled"}
+        anthropic = _sdk()
+        try:
+            msg = await self._client.messages.create(**params)
+        except anthropic.AnthropicError as exc:
+            err = map_error(exc, spec.id)
+            log.warning("Claude JSON isteği başarısız (%s): %s", err.kind.value, err)
+            raise err from exc
+        lines, _ = _usage_lines(msg, spec)
+        data = None
+        if msg.stop_reason not in ("refusal", "max_tokens"):
+            text = next((b.text for b in msg.content if getattr(b, "type", "") == "text"), "")
+            try:
+                data = json.loads(text) if text else None
+            except json.JSONDecodeError:
+                log.warning("Claude JSON çıktısı çözümlenemedi (durma=%s)", msg.stop_reason)
+            if data is not None and not isinstance(data, dict):
+                data = None
+        result = JsonResult(data, lines, getattr(msg, "_request_id", None), msg.stop_reason, str(msg.model))
+        log.info("Claude JSON yanıtı: model=%s durma=%s maliyet=$%.5f istek=%s", result.model_served,
+                 result.stop_reason, sum(x.cost_usd for x in lines), result.request_id)
+        return result
+
+
+@dataclass
+class JsonResult:
+    """`ClaudeClient.complete_json` sonucu (Aşama 4)."""
+
+    data: dict | None
+    cost_lines: list[CostLine]
+    request_id: str | None
+    stop_reason: str | None
+    model_served: str
+# ---- Aşama 4 sonu ----

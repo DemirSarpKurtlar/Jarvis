@@ -55,7 +55,8 @@ def memory_keyring(request):
     keyring.set_keyring(previous)
 
 
-def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ARG001
+# --- Aşama 5: Windows'a özgü testler yalnızca Windows'ta çalışır ---
+def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ANN201
     """`windows` işaretli testler başka sistemlerde kendiliğinden atlanır.
     `models` testleri model yoksa kendi içinde atlanır (tests/model_assets.py)."""
     if sys.platform == "win32":
@@ -64,3 +65,4 @@ def pytest_collection_modifyitems(config, items):  # noqa: ANN001, ARG001
     for item in items:
         if item.get_closest_marker("windows"):
             item.add_marker(skip)
+# --- Aşama 5 sonu ---

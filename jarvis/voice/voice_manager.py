@@ -24,7 +24,7 @@ import logging
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
@@ -272,11 +272,15 @@ class VoiceManager:
     WAKE_TO_LISTEN_S = 0.3
 
     def __init__(self, store: SettingsStore, bus: EventBus, state: StateMachine, chat: Any,
-                 loader: ComponentLoader | None = None, sleep: Callable[[float], None] = time.sleep) -> None:
+                 loader: ComponentLoader | None = None, sleep: Callable[[float], None] = time.sleep,
+                 send: Callable[[str], Awaitable[Any]] | None = None) -> None:
         self.store = store
         self.bus = bus
         self.state = state
         self.chat = chat
+        # Tanınan metnin gideceği yol. Assistant burada `_handle_text` verir: yazılı metinle aynı
+        # (önce yerel komutlar, örn. "Not Defteri'ni aç", Claude'suz; sonra Claude).
+        self._send = send or chat.send
         self.loader = loader or RealComponentLoader()
         self._sleep = sleep
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-voice")
@@ -613,17 +617,22 @@ class VoiceManager:
                 return
             self._empty_streak = 0
             failed: list[str] = []
-            unsub = self.bus.subscribe(Topics.CHAT_FAILED, failed.append)
+            answers: list[Any] = []   # yerel komutlar sonucu CHAT_DONE ile duyurur, değer döndürmez
+            unsubs = [self.bus.subscribe(Topics.CHAT_FAILED, failed.append),
+                      self.bus.subscribe(Topics.CHAT_DONE, answers.append)]
             try:
-                done = await self.chat.send(tr.text)
+                done = await self._send(tr.text)
             except Exception:  # noqa: BLE001
                 log.exception("Sesli istek Claude'a iletilemedi")
                 self.bus.publish(Topics.VOICE_ERROR, "İsteğini iletirken beklenmeyen bir hata oldu.")
                 done = None
             finally:
-                unsub()
+                for u in unsubs:
+                    u()
             if self.state.state not in (S.STANDBY, S.ERROR):
                 self.state.reset()   # send erken döndüyse (meşgul, anahtar yok) durum kalmış olabilir
+            if done is None and answers and hasattr(answers[-1], "text"):
+                done = answers[-1]
             if done is not None:
                 await self._speak(done.text, follow_up=True)
             elif failed and self.state.state is not S.ERROR:

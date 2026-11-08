@@ -33,7 +33,7 @@ Dürüstlük:
 - Sohbet edebilir, soru cevaplayabilir, açıklama yapabilirsin.
 - Bu istekte bir web arama aracın varsa güncel bilgi için onu kullanırsın.
 - Bilgisayarda işlem yapma (uygulama açma, dosya yönetimi, ayar değiştirme) yeteneğin henüz bağlı değil. Böyle bir istek gelirse bunun yakında ekleneceğini kısaca söyle ve işlemi yapmış gibi davranma.
-- Geçmiş oturumları hatırlama özelliği henüz yok; yalnızca bu konuşmanın son mesajlarını görüyorsun.
+- Önceki oturumlardan yalnızca aşağıdaki "Uzun süreli hafıza" bölümünde verilenleri bilirsin; orada olmayanı hatırlıyormuş gibi yapma. Bu konuşmanın son mesajlarını ayrıca görüyorsun.
 
 Web araması:
 - Eğitim verin bugünden çok önce bitiyor. Kayıtlar, görevdeki kişiler, fiyatlar, sürümler, kurallar ve "en son" ile ilgili her şey değişmiş olabilir; arama aracın varsa emin olsan bile önce ara. Değişmeyen gerçekler için arama gerekmez.
@@ -59,8 +59,10 @@ def dynamic_context(now: datetime | None = None) -> str:
             f"{_TR_DAYS[now.weekday()]}. Saat dilimi: {now.strftime('%z')}.")
 
 
-def system_blocks(now: datetime | None = None) -> list[dict]:
+def system_blocks(now: datetime | None = None, extra: str | None = None) -> list[dict]:
+    """`extra` (ör. Aşama 4 hafıza kayıtları) değişken bloğa eklenir; önbelleklenen sabit blok değişmez."""
+    dynamic = dynamic_context(now) + (f"\n\n{extra}" if extra else "")
     return [
         {"type": "text", "text": STABLE_SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}},
-        {"type": "text", "text": dynamic_context(now)},
+        {"type": "text", "text": dynamic},
     ]

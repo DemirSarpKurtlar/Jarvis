@@ -35,6 +35,13 @@ class Topics:
     CLAUDE_STATUS = "claude.status"            # payload: ClaudeStatus
     CONFIRM_REQUEST = "app.confirm"            # payload: ConfirmRequest
     APP_SHUTDOWN = "app.shutdown"              # payload: None
+    # Aşama 4: hafıza
+    MEMORY_CHANGED = "memory.changed"          # payload: None (kayıtlar değişti)
+    MEMORY_PENDING = "memory.pending"          # payload: Memory (kullanıcı onayı bekleyen yeni kayıt)
+    # --- Aşama 5: araçlar ---
+    TOOL_CONFIRM = "tool.confirm"              # payload: ToolConfirmRequest (security/permission_manager.py)
+    TOOL_EXECUTED = "tool.executed"            # payload: ToolResult
+    # --- Aşama 5 sonu ---
     # --- Aşama 3: ses motoru ---
     VOICE_STATUS = "voice.status"              # payload: VoiceStatus
     VOICE_LEVEL = "voice.level"                # payload: VoiceLevel (mikrofon ya da konuşma seviyesi)
@@ -59,6 +66,9 @@ class EventBus:
                 self._handlers[topic].remove(handler)
 
         return unsubscribe
+
+    def has_subscribers(self, topic: str) -> bool:
+        return bool(self._handlers.get(topic))
 
     def publish(self, topic: str, payload: Any = None) -> None:
         for handler in list(self._handlers.get(topic, [])):

@@ -30,8 +30,10 @@ from jarvis.core.chat_service import ClaudeStatus
 from jarvis.interface.chat_view import ChatView
 from jarvis.interface.components import icon
 from jarvis.interface.conversations_view import ConversationsView
-from jarvis.interface.dialogs import ask_budget
+from jarvis.interface.dialogs import ask_budget, ask_tool_confirmation
+from jarvis.interface.memory_view import MemoryView
 from jarvis.interface.settings_view import SettingsView
+from jarvis.interface.system_view import SystemView  # Aşama 5
 from jarvis.interface.telemetry_panel import TelemetryPanel
 from jarvis.interface.theme import C, Fonts
 from jarvis.interface.visualizer import ReactorWidget
@@ -49,8 +51,6 @@ NAV_ITEMS = [
 
 # Henüz yapılmamış bölümler: sahte içerik yerine dürüst bir açıklama gösterilir
 COMING = {
-    "hafiza": ("Hafıza", "Hatırladıklarımı görüp düzenleyebileceğin ve silebileceğin ekran Aşama 4'te geliyor."),
-    "sistem": ("Sistem", "Ayrıntılı işlem ve donanım ekranı Aşama 5'te geliyor. Özet bilgiler sağdaki şeritte."),
     "otomasyon": ("Otomasyon", "Rutinler ve zamanlanmış görevler Aşama 6'da geliyor."),
 }
 
@@ -292,6 +292,10 @@ class MainWindow(QMainWindow):
     def __init__(self, assistant: Assistant, fonts: Fonts, developer: bool = False) -> None:
         super().__init__()
         self.assistant = assistant
+        # Aşama 9: bildirim alanı (varsa TrayController atar) ve kapanış bayrakları
+        self.tray = None
+        self._quitting = False
+        self._close_emitted = False
         self.setWindowTitle(f"JARVIS {__version__}")
         self.resize(1440, 900)
         self.setMinimumSize(1000, 680)
@@ -301,7 +305,7 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(0)
 
-        self.sidebar = Sidebar(self.navigate, self.close)
+        self.sidebar = Sidebar(self.navigate, self.quit_app)
         self.stack = QStackedWidget()
         self.panel = PanelPage(fonts, assistant)
         self.pages: dict[str, QWidget] = {"panel": self.panel}
@@ -310,6 +314,10 @@ class MainWindow(QMainWindow):
         self.settings_view = SettingsView(assistant)
         self.pages["konusmalar"] = self.conversations
         self.pages["ayarlar"] = self.settings_view
+        self.memory_view = MemoryView(assistant)  # Aşama 4
+        self.pages["hafiza"] = self.memory_view
+        self.system_view = SystemView(assistant)  # Aşama 5: gerçek Sistem ekranı
+        self.pages["sistem"] = self.system_view
         for key, (title, text) in COMING.items():
             self.pages[key] = ComingSoonPage(title, text)
         for key in ("konusmalar", "hafiza", "sistem", "otomasyon", "ayarlar"):
@@ -337,6 +345,8 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.CLAUDE_STATUS, self._on_claude_status)
         bus.subscribe(Topics.SETTINGS_CHANGED, self.telemetry.apply_settings)
         bus.subscribe(Topics.CONFIRM_REQUEST, self._on_confirm)
+        bus.subscribe(Topics.MEMORY_PENDING, self._on_memory_pending)  # Aşama 4
+        bus.subscribe(Topics.TOOL_CONFIRM, self._on_tool_confirm)  # Aşama 5
         # --- Aşama 3: ses motoru ---
         bus.subscribe(Topics.VOICE_STATUS, self.panel.set_voice_status)
         bus.subscribe(Topics.VOICE_LEVEL, self._on_voice_level)
@@ -367,6 +377,11 @@ class MainWindow(QMainWindow):
         elif chat.status is ClaudeStatus.CONNECTED and self.panel.banner.action.text() == "Anahtarı gir":
             self.panel.banner.hide()
 
+    def _on_memory_pending(self, _memory) -> None:  # noqa: ANN001  (Aşama 4)
+        self.panel.banner.show_message(
+            "Bir bilgiyi hafızaya kaydetmeden önce onayını bekliyorum.", "uyari",
+            "Hafıza", lambda: (self.navigate("hafiza"), self.panel.banner.hide()))
+
     def open_key_dialog(self) -> None:
         self.navigate("ayarlar")
         self.settings_view.open_key_dialog()
@@ -376,6 +391,28 @@ class MainWindow(QMainWindow):
             if not req.future.done():
                 req.future.set_result(ok)
         self._confirm_box = ask_budget(self, req.question, answer)
+
+    # --- Aşama 5: araç onayı (engellemeyen pencere) ---
+    def _on_tool_confirm(self, req) -> None:  # noqa: ANN001
+        boxes = self.__dict__.setdefault("_tool_boxes", [])
+
+        def answer(ok: bool) -> None:
+            if not req.future.done():
+                req.future.set_result(ok)
+            if box in boxes:
+                boxes.remove(box)
+
+        def close_box(_f) -> None:  # noqa: ANN001  onay süresi dolarsa/iptal edilirse pencere de kapansın
+            try:
+                if box.isVisible():
+                    box.close()
+            except RuntimeError:  # pencere zaten silinmiş
+                pass
+
+        req.future.add_done_callback(close_box)
+        box = ask_tool_confirmation(self, req.prompt, answer)
+        boxes.append(box)
+    # --- Aşama 5 sonu ---
 
     def navigate(self, key: str) -> None:
         self.stack.setCurrentWidget(self.pages[key])
@@ -426,7 +463,34 @@ class MainWindow(QMainWindow):
             sm.transition(new, detail)
         self._demo_index += 1
 
+    # ---------- Aşama 9: bildirim alanı, tek örnek, tamamen kapatma ----------
+    def bring_to_front(self) -> None:
+        """Gizli ya da simge durumundaki pencereyi gösterip öne getirir (ikinci açılış, tepsi)."""
+        state = self.windowState() & ~Qt.WindowState.WindowMinimized
+        self.show()
+        self.setWindowState(state | Qt.WindowState.WindowActive)
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self) -> None:
+        """Tamamen kapat: "kapatınca bildirim alanına in" ayarına bakmadan temiz kapanışı başlatır."""
+        self._quitting = True
+        self.close()
+        if not self._close_emitted:  # gizli pencerede kapanma olayı gelmeyebilir
+            self._emit_close()
+
+    def _emit_close(self) -> None:
+        self._close_emitted = True
+        self.close_requested.emit()
+
     def closeEvent(self, event: QCloseEvent) -> None:
+        if not self._quitting and self.tray is not None and self.assistant.settings.ui.close_to_tray:
+            event.ignore()
+            self.hide()
+            self.tray.notify_hidden()
+            log.info("Pencere bildirim alanına indirildi")
+            return
         log.info("Pencere kapatılıyor")
         event.accept()
-        self.close_requested.emit()
+        if not self._close_emitted:
+            self._emit_close()

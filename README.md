@@ -7,7 +7,10 @@ Türkçe konuşan, Claude API ile düşünen, Windows'u güvenli şekilde yönet
 
 ## Kurulum (Windows)
 
-Python **3.12** önerilir.
+Hazır kurulum programı (yönetici izni gerekmez), Windows ile başlatma, yükseltme, kaldırma ve
+kaynaktan exe/kurulum derleme için: **`docs/KURULUM.md`**.
+
+Kaynaktan çalıştırmak için Python **3.12** önerilir.
 
 ```powershell
 cd C:\Users\<adın>\Projeler\Jarvis
@@ -25,7 +28,8 @@ Seçenekler:
 | `python -m jarvis --gelistirici` | F8 ile durum animasyonlarını sırayla gösterir, F9 deneme hatası üretir |
 | `python -m pytest` | Tüm ücretsiz testleri çalıştırır |
 | `python -m pytest -m live -v -s` | Gerçek Claude API testleri (ücretli, yaklaşık $0,05–0,10; önce anahtarı gir) |
-| `set JARVIS_DOWNLOAD_MODELS=1` sonra `python -m pytest -m models -v` | Gerçek ses modelleriyle testler (ücretsiz; ilk seferde ~600 MB indirir) |
+| `python scripts\fetch_models.py` sonra `python -m pytest -m models -v` | Gerçek ses modelleriyle testler (ücretsiz; modeller ~650 MB, `JARVIS_MODELS_DIR` ya da `.test-models\` altına) |
+| `python -m pytest -m windows -v` | Gerçek Windows araç testleri (Not Defteri'ni açıp kapatır, ses düzeyini okuyup geri yükler) |
 
 Kısayol: **Ctrl+Shift+M** mikrofonu anında kapatır ya da açar.
 
@@ -51,13 +55,22 @@ JARVIS'i aç, **Ayarlar > Claude bağlantısı > Anahtarı gir**. Anahtar önce 
 sonra Windows Credential Manager'a kaydedilir. Anahtarı [Anthropic Console](https://platform.claude.com) > API Keys'ten alabilirsin.
 Claude Pro/Max aboneliği API kullanımını kapsamaz; API ayrı faturalanır.
 
+## Hafıza
+
+JARVIS konuşmalardan yalnızca işe yarayacak bilgileri (tercihler, kendi isteğinle verdiğin kişisel bilgiler,
+görevler, rutinler, kararlar, teknik sorunlar ve konuşma özetleri) yerel veritabanında saklar. Her cümleyi kaydetmez.
+"Bunu hatırla: ..." ve "... unut" komutları çalışır. Sağlık, para, kesin konum gibi hassas bilgiler ve JARVIS'in
+tahmin ettiği şeyler **Hafıza** ekranında onaylamadan kullanılmaz; şifre ve API anahtarı hiçbir zaman kaydedilmez.
+Hafıza ekranından kayıtları görebilir, düzeltebilir, silebilir ya da hafızayı tamamen kapatabilirsin.
+Ayrıntı: `docs/KARARLAR.md` (Aşama 4) ve `docs/ASAMA4-TEST-RAPORU.md`.
+
 ## Dosyalar nerede?
 
 | Ne | Windows'ta |
 |---|---|
 | Ayarlar | `%APPDATA%\JARVIS\settings.json` |
 | Loglar | `%LOCALAPPDATA%\JARVIS\Logs\jarvis.log` |
-| Veri (veritabanı, ses modelleri) | `%LOCALAPPDATA%\JARVIS\` |
+| Veri (konuşmalar, maliyet, hafıza: `jarvis.db`; ses modelleri: `models\`) | `%LOCALAPPDATA%\JARVIS\` |
 
 `JARVIS_HOME` ortam değişkeni verilirse hepsi o klasörün altına toplanır (taşınabilir kullanım ve testler).
 
@@ -73,6 +86,8 @@ jarvis/
   config/             ayarlar (pydantic, atomik kayıt, bozuk dosya yedeği)
   core/               durum makinesi, olay veriyolu, hata yakalama, loglama, asistan çekirdeği
   system/             gerçek sistem verisi (CPU, RAM, disk, ağ, NVIDIA GPU)
+  tools/              Windows araçları (izin listesi, strict şema) ve yerel Türkçe komutlar   [Aşama 5]
+  security/           izinler, dosya korumalı alanı, denetim kaydı, anahtar deposu           [Aşama 5]
   voice/              ses motoru: mikrofon/hoparlör, uyandırma, VAD, STT, TTS, konuşma döngüsü
   interface/          PySide6 arayüzü: tema, reaktör görselleştirici, paneller
   assets/fonts/       Saira ve IBM Plex Sans (OFL)

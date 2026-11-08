@@ -51,6 +51,18 @@ def text_stream(text_chunks: list[str], model: str = "claude-haiku-5-5", stop_re
     return sse(*events)
 
 
+def json_message(data: dict | None, model: str = "claude-haiku-5-5", stop_reason: str = "end_turn",
+                 usage: dict | None = None, raw_text: str | None = None) -> tuple[int, dict]:
+    """Akışsız `messages.create` yanıtı (yapılandırılmış JSON çıktısı). FakeAPI'ye (200, gövde) olarak verilir."""
+    u = {"input_tokens": 1500, "output_tokens": 120, "cache_creation_input_tokens": 0,
+         "cache_read_input_tokens": 0}
+    u.update(usage or {})
+    text = raw_text if raw_text is not None else json.dumps(data, ensure_ascii=False)
+    return 200, {"id": "msg_json", "type": "message", "role": "assistant", "model": model,
+                 "content": [{"type": "text", "text": text}] if text else [],
+                 "stop_reason": stop_reason, "stop_sequence": None, "usage": u}
+
+
 @dataclass
 class FakeAPI:
     """Sırayla verilen yanıtları döndürür, gelen istekleri kaydeder."""
@@ -80,3 +92,39 @@ class FakeAPI:
     def client(self, key: str = "sk-ant-api03-" + "x" * 30, max_retries: int = 0) -> ClaudeClient:
         http = anthropic.DefaultAsyncHttpxClient(transport=httpx2.MockTransport(self.handler))
         return ClaudeClient(key, max_retries=max_retries, http_client=http)
+
+
+def tool_use_stream(name: str, tool_input: dict, text_before: str = "", tool_id: str = "toolu_1",
+                    model: str = "claude-haiku-5-5", stop_reason: str = "tool_use") -> bytes:
+    """Claude'un bir istemci aracı çağırdığı akış."""
+    events = [{"type": "message_start", "message": {
+        "id": "msg_tool", "type": "message", "role": "assistant", "model": model, "content": [],
+        "stop_reason": None, "stop_sequence": None,
+        "usage": {"input_tokens": 1500, "output_tokens": 0, "cache_creation_input_tokens": 0,
+                  "cache_read_input_tokens": 0}}}]
+    idx = 0
+    events += [
+        {"type": "content_block_start", "index": idx, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
+        {"type": "content_block_delta", "index": idx, "delta": {"type": "signature_delta", "signature": "sig-t"}},
+        {"type": "content_block_stop", "index": idx},
+    ]
+    idx += 1
+    if text_before:
+        events += [
+            {"type": "content_block_start", "index": idx, "content_block": {"type": "text", "text": ""}},
+            {"type": "content_block_delta", "index": idx, "delta": {"type": "text_delta", "text": text_before}},
+            {"type": "content_block_stop", "index": idx},
+        ]
+        idx += 1
+    events += [
+        {"type": "content_block_start", "index": idx,
+         "content_block": {"type": "tool_use", "id": tool_id, "name": name, "input": {}}},
+        {"type": "content_block_delta", "index": idx,
+         "delta": {"type": "input_json_delta", "partial_json": json.dumps(tool_input, ensure_ascii=False)}},
+        {"type": "content_block_stop", "index": idx},
+        {"type": "message_delta", "delta": {"type": "message_delta", "stop_reason": stop_reason, "stop_sequence": None},
+         "usage": {"input_tokens": 1500, "output_tokens": 40, "cache_creation_input_tokens": 0,
+                   "cache_read_input_tokens": 0}},
+        {"type": "message_stop"},
+    ]
+    return sse(*events)
