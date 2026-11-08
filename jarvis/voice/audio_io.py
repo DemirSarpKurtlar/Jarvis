@@ -489,7 +489,9 @@ class AudioPlayer:
                 if self._offset >= len(cur):
                     self._chunks.popleft()
                     self._offset = 0
-            if not self._chunks and self._eos:
+            # "Bitti" ancak son veriyi teslim ettikten SONRAKİ çağrıda: bu çağrıda doldurulan blok
+            # henüz ses kartına gitmedi; şimdi bitti dersek son kelime kesilebilir/erken dinlemeye geçilir.
+            if not self._chunks and self._eos and filled == 0:
                 self._done.set()
         out *= float(self.gain())
         if outdata.ndim == 2:
