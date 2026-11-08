@@ -5,6 +5,8 @@ import asyncio
 import ctypes
 import json
 
+import sys
+
 import pytest
 
 from jarvis.security.permission_manager import Permission, PermissionManager
@@ -176,6 +178,7 @@ def test_windows_only_tools_unsupported_elsewhere(tmp_path, monkeypatch):
     assert env.run("youtube_play", {"query": "lofi"}).ok
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="gerçek Windows arka uçları burada gerçekten çalışır")
 def test_default_backends_on_linux_say_not_supported(tmp_path, win):
     ctx = make_ctx(tmp_path)
     reg = build_registry(ctx)          # varsayılan (gerçek) arka uçlar: Linux'ta "desteklenmiyor"

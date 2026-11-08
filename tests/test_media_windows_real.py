@@ -40,7 +40,14 @@ def test_policy_config_can_be_created():
 
 
 def test_app_sessions_read():
-    for s in WinAppAudio().sessions():
+    from jarvis.tools.registry import ToolError
+
+    try:
+        sessions = WinAppAudio().sessions()
+    except ToolError as e:   # CI sanal makinesinde ses aygıtı yok: çökmeden dürüst mesaj vermeli
+        assert "ses çıkış aygıtı bulunamadı" in e.user_message
+        pytest.skip("bu makinede ses çıkış aygıtı yok")
+    for s in sessions:
         assert 0 <= s.volume <= 100 and isinstance(s.muted, bool)
 
 

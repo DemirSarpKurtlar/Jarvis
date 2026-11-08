@@ -5,6 +5,8 @@ import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import sys
+
 import pytest
 
 from jarvis.config.settings import SettingsStore
@@ -146,7 +148,10 @@ def test_http_get_allowlist():
                 "https://api.open-meteo.com.evil.com/v1"):
         with pytest.raises(br.FetchError):
             br.http_get(bad)
-    assert br.pending_reboot() is None   # Windows dışında bilinmiyor (uydurulmaz)
+    if sys.platform == "win32":
+        assert br.pending_reboot() in (True, False)   # kayıt defterinden gerçek değer
+    else:
+        assert br.pending_reboot() is None   # Windows dışında bilinmiyor (uydurulmaz)
 
 
 def test_tool_and_intents(tmp_path):

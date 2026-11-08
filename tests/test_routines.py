@@ -3,6 +3,8 @@
 import asyncio
 import json
 
+import sys
+
 import pytest
 
 from jarvis.config.settings import SettingsStore
@@ -223,6 +225,7 @@ def test_disabled_unknown_and_forbidden(tmp_path, win):
     assert not res.ok
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows'ta adımlar gerçekten çalışır (uygulama açar)")
 def test_unsupported_os_steps_report_honestly(tmp_path):
     ctx, reg, store, _ = setup(tmp_path)   # Linux: Windows'a özgü adımlar desteklenmiyor
     store.set_enabled(store.find("Çalışma modu").id, True)

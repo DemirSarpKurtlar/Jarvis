@@ -334,7 +334,11 @@ class WinAppAudio:  # pragma: no cover - yalnızca Windows
             from pycaw.pycaw import AudioUtilities
         except ImportError as e:
             raise ToolError("pycaw yok", "Uygulama sesi için pycaw kurulu değil.") from e
-        return AudioUtilities.GetAllSessions()
+        try:
+            return AudioUtilities.GetAllSessions()
+        except Exception as e:  # noqa: BLE001  COMError "Element not found": varsayılan çıkış aygıtı yok
+            raise ToolError(f"ses oturumları okunamadı: {e}",
+                            "Varsayılan bir ses çıkış aygıtı bulunamadı. Hoparlör ya da kulaklık bağlı mı?") from e
 
     def sessions(self) -> list[AppAudioSession]:
         out = []

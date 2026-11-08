@@ -55,7 +55,27 @@ def write(p: Path, size: int = 10, age_s: float | None = None, data: bytes | Non
     if age_s is not None:
         t = time.time() - age_s
         os.utime(p, (t, t))
+        if sys.platform == "win32":
+            _set_creation_time(p, t)   # Windows'ta yaş = max(değişiklik, oluşturulma): ikisi de eski olmalı
     return p
+
+
+def _set_creation_time(p: Path, t: float) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateFileW.restype = wintypes.HANDLE
+    k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    h = k32.CreateFileW(str(p), 0x100, 0x7, None, 3, 0x80, None)   # FILE_WRITE_ATTRIBUTES, OPEN_EXISTING
+    assert h not in (None, wintypes.HANDLE(-1).value), ctypes.get_last_error()
+    try:
+        ft = int(t * 10_000_000) + 116444736000000000
+        when = wintypes.FILETIME(ft & 0xFFFFFFFF, ft >> 32)
+        assert k32.SetFileTime(h, ctypes.byref(when), None, None), ctypes.get_last_error()
+    finally:
+        k32.CloseHandle(h)
 
 
 # ====================================================================== yer açma
