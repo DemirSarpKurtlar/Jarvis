@@ -2,6 +2,7 @@
 
 * "Windows açılınca başlat": kayıt defterindeki Run değerini anında yazar/siler.
 * "Pencereyi kapatınca bildirim alanında çalışmaya devam et".
+* "Dinlerken ekranın üstünde göster" (dinleme göstergesi, `interface/overlay.py`).
 
 Desteklenmeyen sistemlerde seçenekler kapalı gösterilir ve nedeni yazılır.
 """
@@ -23,6 +24,8 @@ log = logging.getLogger(__name__)
 
 AUTOSTART_NOTE = "Oturum açınca JARVIS pencere açmadan bildirim alanında başlar."
 NO_TRAY_NOTE = "Bu sistemde bildirim alanı yok; pencereyi kapatmak JARVIS'i kapatır."
+OVERLAY_NOTE = ("JARVIS penceresi öndeyken gösterilmez. Oyunlarda görmek için oyunu Kenarlıksız pencere "
+                "modunda çalıştır; gerçek tam ekranın üstüne çizilemez.")
 
 
 class StartupSection(QWidget):
@@ -65,6 +68,15 @@ class StartupSection(QWidget):
         tray_note.setWordWrap(True)
         lay.addWidget(tray_note)
 
+        # Dinleme göstergesi
+        self.overlay_box = QCheckBox("Dinlerken ekranın üstünde göster")
+        self.overlay_box.setChecked(s.ui.overlay_enabled)
+        self.overlay_box.toggled.connect(self._apply_overlay)
+        lay.addWidget(self.overlay_box)
+        overlay_note = QLabel(OVERLAY_NOTE, objectName="Not")
+        overlay_note.setWordWrap(True)
+        lay.addWidget(overlay_note)
+
     def _save(self) -> None:
         self.assistant.store.save()
         self.assistant.bus.publish(Topics.SETTINGS_CHANGED, self.assistant.settings)
@@ -86,4 +98,8 @@ class StartupSection(QWidget):
 
     def _apply_tray(self, enabled: bool) -> None:
         self.assistant.settings.ui.close_to_tray = enabled
+        self._save()
+
+    def _apply_overlay(self, enabled: bool) -> None:
+        self.assistant.settings.ui.overlay_enabled = enabled
         self._save()

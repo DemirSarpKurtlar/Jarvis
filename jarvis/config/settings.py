@@ -47,6 +47,8 @@ class UISettings(_Section):
     reduced_motion: bool = False
     # Pencereyi kapatınca bildirim alanında çalışmaya devam et (varsayılan: kapat = çık)
     close_to_tray: bool = False
+    # Dinlerken ekranın üstünde gösterge (interface/overlay.py)
+    overlay_enabled: bool = True
 
 
 class AISettings(_Section):
