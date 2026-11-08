@@ -1351,5 +1351,8 @@ class OverlayController(QObject):
             u()
         self._unsubs.clear()
         self._end_session()
+        self._hide_timer.stop()
+        self._hold_timer.stop()
         self.overlay.dismiss()
-        self.overlay.deleteLater()
+        # deleteLater yok: pencere Python'a ait (ebeveynsiz). Ertelenmiş silme + Python'un kendi
+        # silmesi yarışıp Linux CI'da Qt çökmesine yol açabiliyordu; gizli pencere referansla birlikte gider.

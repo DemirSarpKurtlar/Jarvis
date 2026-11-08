@@ -301,7 +301,8 @@ def test_talk_button_while_listening_sends_immediately(tmp_path):
         await h.stop()
 
     asyncio.run(go())
-    assert h.stt.calls and len(h.stt.calls[0]) >= 8 * 1280
+    # Beklenen koşul (speech_s > 0.5) yarım saniyelik konuşma: o kadarı gönderilmiş olmalı
+    assert h.stt.calls and len(h.stt.calls[0]) >= 16000 // 2
 
 
 def test_mute_closes_input_stream_and_ignores_wake(tmp_path):
