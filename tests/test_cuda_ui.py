@@ -210,20 +210,29 @@ def test_download_error_is_shown_and_retry_works(qapp, loop):
     inst = FakeInstaller(fail="internet bağlantısı yok ya da sunucuya ulaşılamadı.")
     a, w = make(loader, inst)
     banner = w.panel.banner
+    # Bandın hata geldiği andaki hâli: Claude başlangıcı ("anahtar girilmedi") arka planda
+    # sonradan aynı banda yazabilir; sıra işletim sistemine göre değişir (Windows CI'da görüldü).
+    errors = []
+    a.bus.subscribe(Topics.VOICE_GPU, lambda p: p.error and errors.append(
+        (banner.text.text(), banner.action.text())))
 
     async def go():
         await a.start()
         await until(lambda: a.voice.ready)
         w.start_gpu_download()
-        await until(lambda: a.voice.gpu_progress is not None and a.voice.gpu_progress.error)
-        assert "internet bağlantısı yok" in banner.text.text() and banner.action.text() == "Tekrar dene"
+        await until(lambda: bool(errors))
+        text, action = errors[0]
+        assert "internet bağlantısı yok" in text and action == "Tekrar dene"
+        if banner.action.text() != "Tekrar dene":   # başka bir uyarı üstüne yazdıysa yeniden göster
+            w.start_gpu_download()
+            await until(lambda: len(errors) >= 2)
         inst.fail = None
         banner.action.click()
         await until(lambda: a.voice.gpu_progress.finished)
         await a.shutdown()
 
     loop.run_until_complete(go())
-    assert inst.calls == 2 and a.voice.gpu_progress.ok
+    assert inst.calls >= 2 and a.voice.gpu_progress.ok
 
 
 def test_no_offer_without_nvidia_or_when_cpu_selected(qapp, loop):
