@@ -114,6 +114,22 @@ class ToolSettings(_Section):
 # --- Aşama 5 sonu ---
 
 
+# --- RUTIN ---
+class BriefingSettings(_Section):
+    """Sabah brifingi (jarvis/tools/briefing.py)."""
+
+    # Hava durumu için şehir (open-meteo, anahtarsız). Boşsa hava durumu atlanır ve kullanıcıya söylenir.
+    city: str = Field("", max_length=80)
+    # Günün ilk açılışında / ilk etkinliğinde brifingi kendiliğinden ver (varsayılan kapalı)
+    auto_enabled: bool = False
+    # Haber başlıkları (ücretsiz RSS, yalnızca başlıklar)
+    news_enabled: bool = True
+    news_source: Literal["aa", "bbc", "trt"] = "aa"
+    # Otomatik brifingin en son verildiği gün (YYYY-MM-DD); günde bir kez
+    last_auto_day: str = ""
+# --- RUTIN sonu ---
+
+
 class Settings(_Section):
     schema_version: int = SCHEMA_VERSION
     general: GeneralSettings = Field(default_factory=GeneralSettings)
@@ -123,6 +139,7 @@ class Settings(_Section):
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolSettings = Field(default_factory=ToolSettings)  # Aşama 5
+    briefing: BriefingSettings = Field(default_factory=BriefingSettings)  # --- RUTIN --- (tek satır)
 
 
 class SettingsStore:

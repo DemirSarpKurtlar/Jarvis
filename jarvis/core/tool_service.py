@@ -47,6 +47,13 @@ class ToolService:
             sandbox = PathSandbox(extra_roots=s.extra_allowed_roots)
             ctx = default_context(sandbox, snapshot=lambda: self.last_snapshot)
         self.ctx = ctx
+        # --- RUTIN ---
+        # Rutin deposu (SQLite), brifing ayarları ve otomatik brifing için araç modüllerine bağımlılıklar
+        ctx.extra.setdefault("db", db)
+        ctx.extra.setdefault("settings_store", store)
+        ctx.extra.setdefault("bus", bus)
+        ctx.extra.setdefault("tool_service", self)
+        # --- RUTIN sonu ---
         self.audit = AuditLogger(db)
         self.permissions = PermissionManager(read_only=s.read_only)
         self.registry: ToolRegistry = build_registry(ctx, audit=self.audit, permissions=self.permissions,
