@@ -61,7 +61,8 @@ jobs:
       - name: pytest
         env:
           QT_QPA_PLATFORM: offscreen
-        run: python -m pytest -q -ra
+        # Qt kullanan test dosyaları ayrı süreçte (Linux'ta da aynı rastgele Qt çökmesi görüldü)
+        run: python scripts/run_tests_isolated.py
 
   windows:
     name: Windows / test, paket, kurulum
