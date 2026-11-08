@@ -33,12 +33,41 @@ from jarvis.voice.wake_word import WakeWordDetector
 KEY = "sk-ant-api03-" + "C" * 40
 
 
+LOOPBACK = {"127.0.0.1", "::1", "localhost"}
+
+
+def _is_loopback(address) -> bool:  # noqa: ANN001
+    host = address[0] if isinstance(address, tuple) and address else address
+    return isinstance(host, str) and host in LOOPBACK
+
+
 @pytest.fixture(autouse=True)
 def no_network(monkeypatch):
+    """Ses testlerinde bilgisayar dışına hiçbir bağlantı kurulamaz.
+
+    Windows'ta asyncio olay döngüsü kendi iç uyandırma mekanizması için 127.0.0.1 üzerinden
+    soket çifti (socketpair) açar; bu dışarıya çıkmadığı için izinlidir.
+    """
+    real_connect = socket.socket.connect
+
+    def guarded_connect(self, address):  # noqa: ANN001, ANN202
+        if _is_loopback(address):
+            return real_connect(self, address)
+        raise AssertionError("Ses testinde ağ bağlantısı denendi!")
+
     def refuse(*a, **kw):  # noqa: ANN002, ANN003, ANN202
         raise AssertionError("Ses testinde ağ bağlantısı denendi!")
-    monkeypatch.setattr(socket.socket, "connect", refuse)
+
+    monkeypatch.setattr(socket.socket, "connect", guarded_connect)
     monkeypatch.setattr(socket, "create_connection", refuse)
+
+
+def test_network_guard_blocks_outside_but_allows_loopback():
+    with pytest.raises(AssertionError):
+        socket.socket().connect(("8.8.8.8", 53))
+    a, b = socket.socketpair()  # Windows'ta 127.0.0.1 üzerinden kurulur
+    a.close()
+    b.close()
 
 
 class Harness:
