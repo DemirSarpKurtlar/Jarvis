@@ -14,6 +14,7 @@ Kesme işaretli ve işaretsiz ekler desteklenir: "Chrome'u kapat", "discordu kap
 from __future__ import annotations
 
 import re
+from collections.abc import Callable  # --- RUTIN --- (rutin eşleştirici tipi)
 from dataclasses import dataclass, field
 
 from jarvis.security.action_validator import FOLDER_ALIASES
@@ -247,6 +248,58 @@ def _power(f: str) -> Intent | None:
     return None
 
 
+# --- RUTIN ---
+# Rutin eşleştirici çalışma anında bağlanır (jarvis/tools/routines.py): açık rutinlerin adı/sözleri
+_routine_matcher: Callable[[str], Intent | None] | None = None
+
+
+def set_routine_matcher(fn: Callable[[str], Intent | None] | None) -> None:
+    global _routine_matcher
+    _routine_matcher = fn
+
+
+_BRIEFING = re.compile(
+    r"(?:gunaydin|gun aydin|gunaydinlar)(?:\s+(?:efendim|dostum|canim))?|"
+    r"(?:sabah\s+|gunluk\s+)?(?:brifing|brifink|briefing)\w*(?:\s+(?:ver|verir misin|yap|oku|alabilir miyim|"
+    r"istiyorum|lazim|baslat))?|"
+    r"(?:sabah|gunun|bugunun)\s+ozet\w*(?:\s+(?:ver|verir misin|oku|istiyorum))?")
+_CITY_TAIL = r"(?:\s+(?:olsun|yap|kaydet|olarak kaydet))?"
+_CITY = re.compile(r"(?:(?:brifing|hava durumu)\s+(?:icin\s+)?)?(?:sehrim|yasadigim sehir|bulundugum sehir|"
+                   r"brifing sehri|brifing sehrini)\s+(.{2,60}?)" + _CITY_TAIL)
+_LIST_ROUTINES = re.compile(r"(?:rutinleri|rutinlerimi|rutinlerim)(?:\s+(?:listele|goster|neler|ne|say))?|"
+                            r"(?:hangi|neler)\s+rutin\w*(?:\s+var)?(?:\s+(?:mi|neler))?")
+_RUN_ROUTINE = re.compile(r"(.{2,60}?)\s+(?:rutinini|rutini)\s+(?:calistir|baslat|ac|yap|devreye al)")
+
+
+def _rutin(cleaned: str, f: str) -> Intent | None:
+    g = re.sub(r"\s+(?:jarvis|lutfen)$", "", f).strip()
+    if _BRIEFING.fullmatch(g):
+        return Intent("morning_briefing", {}, "Sabah brifingi")
+    m = _CITY.fullmatch(g)
+    if m:
+        # Şehir adını özgün yazımıyla al (Türkçe harfler): katlanmış eşleşmedeki kelime sayısı kadar
+        n = len(m.group(1).split())
+        words = [w for w in cleaned.split() if fold(w) not in ("jarvis", "lutfen")]
+        while words and fold(words[-1]) in ("olsun", "yap", "kaydet", "olarak"):
+            words.pop()
+        city = " ".join(words[-n:]).strip(" .,!?'\"")
+        return Intent("set_briefing_city", {"city": city[:80]}, "Brifing şehri") if city else None
+    if _LIST_ROUTINES.fullmatch(g):
+        return Intent("list_routines", {}, "Rutinler")
+    if _routine_matcher is not None:
+        try:
+            hit = _routine_matcher(cleaned)
+        except Exception:  # noqa: BLE001  eşleştirici yerel komutları asla bozmamalı
+            hit = None
+        if hit is not None:
+            return hit
+    m = _RUN_ROUTINE.fullmatch(g)
+    if m:
+        return Intent("run_routine", {"name": m.group(1)[:60]}, "Rutin")
+    return None
+# --- RUTIN sonu ---
+
+
 def parse(text: str) -> Intent | None:
     if not isinstance(text, str) or len(text) > 300:
         return None
@@ -254,6 +307,12 @@ def parse(text: str) -> Intent | None:
     if not cleaned:
         return None
     f = fold(cleaned)
+    # --- RUTIN ---
+    # Sabah brifingi ve kullanıcı rutinleri: rutin sözleri "ve" içerebilir, çoklu adım kuralından önce bakılır
+    hit = _rutin(cleaned, f) if f else None
+    if hit:
+        return hit
+    # --- RUTIN sonu ---
     if not f or _MULTI.search(f) or re.search(r"[,;]", cleaned):
         return None
 

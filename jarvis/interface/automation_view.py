@@ -89,6 +89,12 @@ class AutomationView(QWidget):
         lay.addLayout(self.list_box)
         self.empty = QLabel("Bekleyen görev yok.", objectName="BosMetin")
         lay.addWidget(self.empty)
+        # --- RUTIN ---
+        from jarvis.interface.routines_view import RoutinesPanel
+        lay.addSpacing(14)
+        self.routines_panel = RoutinesPanel(assistant)
+        lay.addWidget(self.routines_panel, 20)
+        # --- RUTIN sonu ---
         lay.addStretch(1)
 
         self._timer = QTimer(self, interval=5000, timeout=self.refresh)

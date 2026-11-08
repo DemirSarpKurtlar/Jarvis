@@ -118,6 +118,50 @@ MIGRATIONS: list[str] = [
     CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts_utc);
     """,
     # --- Aşama 5 sonu ---
+    # --- RUTIN ---
+    # rutinler: kullanıcı tanımlı çok adımlı komutlar (jarvis/tools/routines.py). Örnekler kapalı gelir.
+    # IF NOT EXISTS ve "yoksa ekle": birleştirmede geçiş sırası değişse de güvenli.
+    """
+    CREATE TABLE IF NOT EXISTS routines (
+        id INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        phrases_json TEXT NOT NULL DEFAULT '[]',   -- tetikleyici sözler
+        steps_json TEXT NOT NULL,                  -- [{"tool": ..., "args": {...}}]
+        enabled INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_run_at TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_routines_name ON routines(name);
+    INSERT INTO routines (name, phrases_json, steps_json, enabled, created_at, updated_at)
+    SELECT 'Çalışma modu', '["çalışma modu", "çalışma zamanı"]',
+           '[{"tool": "open_app", "args": {"name": "Visual Studio Code"}},
+             {"tool": "open_app", "args": {"name": "Spotify"}},
+             {"tool": "close_app", "args": {"name": "Discord", "force": false}},
+             {"tool": "set_volume", "args": {"level": 30}},
+             {"tool": "say", "args": {"text": "Çalışma modu hazır. Kolay gelsin."}}]',
+           0, datetime('now'), datetime('now')
+    WHERE NOT EXISTS (SELECT 1 FROM routines WHERE name = 'Çalışma modu');
+    INSERT INTO routines (name, phrases_json, steps_json, enabled, created_at, updated_at)
+    SELECT 'Oyun modu', '["oyun modu", "oyun zamanı"]',
+           '[{"tool": "close_app", "args": {"name": "Visual Studio Code", "force": false}},
+             {"tool": "open_app", "args": {"name": "Steam"}},
+             {"tool": "open_app", "args": {"name": "Discord"}},
+             {"tool": "set_volume", "args": {"level": 60}},
+             {"tool": "say", "args": {"text": "Oyun modu hazır. İyi eğlenceler."}}]',
+           0, datetime('now'), datetime('now')
+    WHERE NOT EXISTS (SELECT 1 FROM routines WHERE name = 'Oyun modu');
+    INSERT INTO routines (name, phrases_json, steps_json, enabled, created_at, updated_at)
+    SELECT 'İyi geceler', '["iyi geceler", "yatıyorum"]',
+           '[{"tool": "close_app", "args": {"name": "Spotify", "force": false}},
+             {"tool": "set_volume", "args": {"level": 15}},
+             {"tool": "say", "args": {"text": "İyi geceler. Ekranı kilitledim."}},
+             {"tool": "wait", "args": {"seconds": 2}},
+             {"tool": "lock_screen", "args": {}}]',
+           0, datetime('now'), datetime('now')
+    WHERE NOT EXISTS (SELECT 1 FROM routines WHERE name = 'İyi geceler');
+    """,
+    # --- RUTIN sonu ---
 ]
 
 

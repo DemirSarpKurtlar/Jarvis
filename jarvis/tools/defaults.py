@@ -38,4 +38,9 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     scheduler.register(reg, ctx)
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
+    # --- RUTIN ---
+    from jarvis.tools import briefing, routines
+    briefing.register(reg, ctx)
+    routines.register(reg, ctx)
+    # --- RUTIN sonu ---
     return reg

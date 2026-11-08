@@ -119,3 +119,17 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 Üstteki taslak çubuğundan 7 ses durumu ve silme onayı penceresi denenebilir.
 Son uygulama PySide6 ile yazılacak. Görselleştirici QPainter ile aynı şekilde çizilecek,
 fontlar (Saira ve IBM Plex Sans, OFL lisanslı) uygulamayla birlikte paketlenecek.
+
+## 2026-11-08 — Sabah brifingi ve rutinler (RUTIN)
+
+| Konu | Karar |
+|---|---|
+| Brifing tetikleme | "Günaydın Jarvis", "sabah brifingi", "brifing ver", "günün özeti" yerel komuttur (API yok). Araç: `morning_briefing` (READ). Claude çağırırsa aynı veriyi kendi cümleleriyle anlatır. |
+| Brifing içeriği | Türkçe tarih/gün; open-meteo hava durumu (anahtarsız, şehir `settings.briefing.city`, konum önbellekte, tahmin 15 dk önbellek); sistem diski boş alanı, GPU sıcaklığı (izleyicinin son ölçümü), işlemci sıcaklığı yalnızca güvenilir sensörden; Windows'ta bekleyen yeniden başlatma (HKLM RebootPending/RebootRequired anahtarları); bugünkü JARVIS görevleri; RSS haber başlıkları (AA varsayılan, BBC Türkçe, TRT Haber). |
+| Haberler | Claude `web_search` Haiku'da yok ve ücretli: ücretsiz RSS, yalnızca başlıklar, sesli özette 3 başlık. Sonuç `untrusted=True`. Ağ: yalnızca izin listesindeki HTTPS adresleri (yönlendirmeler dahil), en çok 1,5 MB, DOCTYPE/ENTITY içeren XML reddedilir. |
+| Şehir | Otomasyon > Rutinler > "Sabah brifingi…" penceresinden ya da "şehrim Ankara" komutuyla (`set_briefing_city`, geocoding ile doğrulanır). Boşsa brifing bunu söyler. |
+| Otomatik brifing | Varsayılan kapalı. Açıksa günde bir kez, 05:00–12:00 arasında: JARVIS bugün açıldıysa ilk sistem ölçümünde, gece açık kaldıysa kullanıcının bugünkü ilk etkinliğinden sonra, asistan boştayken. Yerel komut yolundan sohbete yazılır; seslendirme yalnızca sesli istekte olur (ses modülü değiştirilmedi). |
+| Rutin deposu | SQLite `routines` tablosu (RUTIN geçişi, `IF NOT EXISTS`). Örnekler ("Çalışma modu", "Oyun modu", "İyi geceler") kapalı gelir, silinirse geri gelmez. |
+| Rutin adımları | Kayıtlı araç + girdi ya da `wait` (1–60 sn, toplam ≤ 300) / `say`. Kaydederken araç şemasıyla doğrulanır. Rutin içinden rutin ve toplu dosya işlemleri (sil/taşı/düzenle) adım olamaz; FORBIDDEN araçlar reddedilir. En çok 20 adım, 8 söz, 50 rutin. |
+| Rutin çalıştırma | `run_routine`: her adım `ToolRegistry.execute` ile (şema, izin, denetim kaydı, kaynak "rutin"). Onaylı adımlar başlamadan TEK pencerede listelenir; yalnızca listelenen adımlar o çalıştırma için onaylı sayılır, beklenmedik onay isteği reddedilir. Onay istenemiyorsa riskli rutin çalışmaz. Bir adım başarısız olursa sonrakiler sürer, sonuçta hepsi dürüstçe sayılır. `say` metinleri cevabın başında okunur. Aynı anda tek rutin. |
+| Rutin tetikleme | Açık rutinin adı/sözü yerel komut (Claude'suz): ekler ("modunu aç"), "jarvis/lütfen" ve Türkçe okunuş farkları tolere edilir. "X rutinini çalıştır" adla çalıştırır; kapalı rutin "kapalı" der. Claude: `list_routines`, `run_routine`, `create_routine` (CONFIRM, adımlar onay penceresinde). |
