@@ -24,6 +24,7 @@ from jarvis.tools import clipboard, documents  # noqa: E402,I001
 from jarvis.tools import media  # noqa: E402
 # --- MEDYA sonu ---
 from jarvis.agent import service as computer_agent  # BILGISAYAR
+from jarvis.tools import ekran  # --- EKRAN --- pencere düzeni, ekran görüntüsü, sesli okuma, dikte
 
 
 def default_context(sandbox, snapshot: Callable = lambda: None) -> ToolContext:  # noqa: ANN001
@@ -54,6 +55,7 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     # --- MEDYA sonu ---
     sistem.register(reg, ctx)  # SISTEM
     computer_agent.register(reg, ctx)  # BILGISAYAR: use_computer
+    ekran.register(reg, ctx)  # --- EKRAN ---
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
     # --- RUTIN ---

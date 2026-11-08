@@ -348,6 +348,119 @@ def _computer_use(cleaned: str) -> Intent | None:
         return Intent("use_computer", {"goal": cleaned[:500]}, "Bilgisayarı kullanma")
     return None
 # --- BILGISAYAR sonu ---
+# --- EKRAN --- pencere düzeni, ekran görüntüsü, sesli okuma, dikte
+# "Ekranımda ne var?" / "ekrana bak" / "bu hatayı açıkla" bilerek yerelde işlenmez: Claude, look_at_screen
+# aracıyla ekran görüntüsünü alıp yorumlar. Çeviri ("nasılsın İngilizcesi ne") da Claude'a gider.
+_THIS_WINDOW = {"", "bu", "bunu", "su", "sunu", "pencere", "pencereyi", "bu pencere", "bu pencereyi", "su pencereyi",
+                "aktif pencere", "aktif pencereyi", "ondeki pencere", "ondeki pencereyi", "acik pencereyi",
+                "bu pencereyi de", "pencereyi de"}
+# "yazıyı büyüt", "resmi küçült" pencere değil: bunlar Claude'a kalır
+_NOT_WINDOWS = {"yazi", "yaziyi", "yazilari", "font", "fontu", "harf", "harfleri", "resim", "resmi", "foto", "fotoyu",
+                "fotografi", "ses", "sesi", "ekran", "ekrani", "dosya", "dosyayi", "metin", "metni", "goruntu",
+                "goruntuyu", "simge", "simgeleri", "imlec", "imleci", "her seyi", "hepsini", "tumunu", "yazi tipini",
+                "video", "videoyu", "sayfa", "sayfayi", "tablo", "tabloyu", "pencereleri"}
+_DO = r"(?:\w*(?: misin| musun| misiniz)?)"           # "taşır mısın", "alabilir misin", "diz"
+_ALL_WINDOWS = r"(?:hepsini|tumunu|her seyi|butun pencereleri|tum pencereleri|pencereleri|acik pencereleri|" \
+               r"tum acik pencereleri|butun acik pencereleri|pencerelerin hepsini|tum pencereleri de)"
+_ORDINAL = {"birinci": 1, "ilk": 1, "1": 1, "ikinci": 2, "2": 2, "ucuncu": 3, "3": 3, "dorduncu": 4, "4": 4}
+
+
+def _window_app(phrase: str | None) -> str | None:
+    """Hedef pencere ifadesi -> uygulama adı ("" = öndeki pencere). Pencere olmayan şeylerde None."""
+    p = (phrase or "").strip()
+    if p in _THIS_WINDOW:
+        return ""
+    p = re.sub(r"\s+(?:penceresini|penceresi|penceresine|pencerelerini)$", "", p).strip()
+    p = re.sub(r"^(?:bu|su)\s+", "", p).strip()
+    if p in _THIS_WINDOW:
+        return ""
+    if not p or p in _NOT_WINDOWS or fold(_name(p)) in _NOT_WINDOWS or len(p) > 60:
+        return None
+    return _name(p)
+
+
+def _ekran(f: str) -> Intent | None:
+    from jarvis.tools.dictation import is_stop_command
+
+    label = "Pencere düzeni"
+    # dikte
+    if is_stop_command(f):
+        return Intent("dictation", {"action": "stop"}, "Dikte modu")
+    if re.fullmatch(r"(?:dikte(?: modu(?:nu)?)?|dikteyi)(?: (?:ac|baslat|aktif et|calistir|acar misin|baslatir misin))?|"
+                    r"dikte(?:ye)? basla|dikte et|dikte moduna gec|yazmaya basla|yazi moduna gec", f):
+        return Intent("dictation", {"action": "start"}, "Dikte modu")
+    # sesli okuma
+    if re.fullmatch(r"(?:secili|sectigim|secilen|secili olan|isaretli|isaretledigim)(?: (?:metni|yaziyi|kismi|"
+                    r"yeri|seyi|metin|paragrafi))?(?: sesli)? (?:oku|okur musun|okuyabilir misin|okusana|seslendir)|"
+                    r"(?:seciliyi|secileni|sectigimi)(?: sesli)? (?:oku|okur musun|seslendir)", f):
+        return Intent("read_text_aloud", {"source": "selection"}, "Seçili metni okuma")
+    if re.fullmatch(r"(?:panodaki(?:ni)?|panoyu|panodaki (?:metni|yaziyi)|kopyaladigimi|kopyaladigim (?:metni|yaziyi)|"
+                    r"panodakileri)(?: sesli)? (?:oku|okur musun|okuyabilir misin|okusana|seslendir)", f):
+        return Intent("read_text_aloud", {"source": "clipboard"}, "Panoyu okuma")
+    # ekran görüntüsü
+    m = re.fullmatch(r"(?:(.+?) )?(?:ekran ?(?:goruntusu|goruntusunu|resmi|resmini|fotografi|fotografini|alintisi)|"
+                     r"screenshot|ss) ?(?:al|cek|kaydet|yakala)" + _DO, f)
+    if m:
+        scope = (m.group(1) or "").strip()
+        if scope in ("", "bir", "tum ekranlarin", "butun ekranlarin", "tum monitorlerin", "butun monitorlerin",
+                     "ekranlarin", "tum ekranin", "tam ekran"):
+            return Intent("take_screenshot", {"target": "screen", "monitor": 0}, "Ekran görüntüsü")
+        if re.fullmatch(r"(?:bu |aktif |ondeki |acik )?pencere(?:nin|den)?", scope):
+            return Intent("take_screenshot", {"target": "active_window", "monitor": 0}, "Ekran görüntüsü")
+        if scope in ("ekranin", "bu ekranin", "bu monitorun", "monitorun"):
+            return Intent("take_screenshot", {"target": "monitor", "monitor": 0}, "Ekran görüntüsü")
+        n = re.fullmatch(r"(birinci|ilk|ikinci|ucuncu|dorduncu|\d)\.? (?:monitorun|ekranin|monitor|ekran)", scope)
+        if n:
+            return Intent("take_screenshot", {"target": "monitor", "monitor": _ORDINAL.get(n.group(1), 0) or 0},
+                          "Ekran görüntüsü")
+        return None
+    # pencereler: hepsi
+    if re.fullmatch(_ALL_WINDOWS + r" (?:kucult|asagi al|simge durumuna (?:kucult|al)|gizle)" + _DO +
+                    r"|masaustunu goster|masaustune (?:don|gec|in)", f):
+        return Intent("arrange_windows", {"action": "minimize_all", "app": "", "second_app": "", "monitor": 0}, label)
+    if re.fullmatch(_ALL_WINDOWS + r" (?:geri (?:getir|ac|al|yukle)|eski haline getir|geri buyut)" + _DO, f):
+        return Intent("arrange_windows", {"action": "restore_all", "app": "", "second_app": "", "monitor": 0}, label)
+    # yan yana
+    m = re.fullmatch(r"(?:(.+?) (?:ile|ve|ile beraber) (.+?)|(?:bu ikisini|bu iki pencereyi|ikisini|pencereleri|"
+                     r"son iki pencereyi)) yan yana (?:diz|koy|getir|ac|yerlestir|al|sirala|ayarla)" + _DO, f)
+    if m:
+        first = _window_app(m.group(1)) if m.group(1) is not None else ""
+        second = _window_app(m.group(2)) if m.group(2) is not None else ""
+        if first is None or second is None:
+            return None
+        return Intent("arrange_windows", {"action": "side_by_side", "app": first, "second_app": second, "monitor": 0},
+                      label)
+    # sol / sağ yarı
+    m = re.fullmatch(r"(?:(.+?) )?(sol|sag) (?:yariya|yarisina|yari ekrana|tarafa|yana|kenara|yarim ekrana|tarafina)"
+                     r" (?:al|tasi|koy|yasla|getir|gonder|cek|yapistir|yerlestir)" + _DO, f)
+    if m:
+        app = _window_app(m.group(1))
+        if app is None:
+            return None
+        action = "left_half" if m.group(2) == "sol" else "right_half"
+        return Intent("arrange_windows", {"action": action, "app": app, "second_app": "", "monitor": 0}, label)
+    # başka monitör
+    m = re.fullmatch(r"(?:(.+?) )?(diger|oteki|obur|oburu|ikinci|birinci|ilk|ucuncu|dorduncu|\d)\.? "
+                     r"(?:monitore|ekrana|monitor e|monitor) (?:tasi|al|gonder|at|gecir|kaydir|aktar)" + _DO, f)
+    if m:
+        app = _window_app(m.group(1))
+        if app is None:
+            return None
+        return Intent("arrange_windows", {"action": "move_to_monitor", "app": app, "second_app": "",
+                                          "monitor": _ORDINAL.get(m.group(2), 0)}, label)
+    # büyüt / küçült / eski boyut
+    for pattern, action in (
+            (r"(?:buyut|tam ekran yap|tam ekran|en buyuk boyuta getir|kocaman yap|ekrani kaplasin|maksimize et)", "maximize"),
+            (r"(?:kucult|simge durumuna (?:kucult|al)|asagi al)", "minimize"),
+            (r"(?:eski (?:haline|boyutuna) (?:getir|dondur)|normal boyuta (?:getir|dondur))", "restore")):
+        m = re.fullmatch(r"(?:(.+?) )?" + pattern + _DO, f)
+        if m:
+            app = _window_app(m.group(1))
+            if app is None:
+                return None
+            return Intent("arrange_windows", {"action": action, "app": app, "second_app": "", "monitor": 0}, label)
+    return None
+# --- EKRAN sonu ---
 
 
 def parse(text: str) -> Intent | None:
@@ -376,6 +489,12 @@ def parse(text: str) -> Intent | None:
         if hit:
             return hit
     # --- SISTEM sonu ---
+    # --- EKRAN --- pencere düzeni, ekran görüntüsü, sesli okuma, dikte ("ve" içeren "yan yana" da)
+    if f and not re.search(r"[;]", cleaned):
+        hit = _ekran(f)
+        if hit:
+            return hit
+    # --- EKRAN sonu ---
     if not f or _MULTI.search(f) or re.search(r"[,;]", cleaned):
         return None
 

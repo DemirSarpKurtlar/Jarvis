@@ -42,7 +42,7 @@ from jarvis.voice.cuda_libs import CudaLibCancelled, CudaLibInstaller, CudaProgr
 from jarvis.voice.echo import EchoGuard
 from jarvis.voice.models import DownloadProgress
 from jarvis.voice.stt import Transcript, clean_transcript
-from jarvis.voice.tts import speakable_text, split_sentences
+from jarvis.voice.tts import MAX_SPOKEN_CHARS, speakable_text, split_sentences
 from jarvis.voice.vad import (EndpointConfig, Endpointer, EndpointKind, EnergyVad, NoiseProfile, VadModel,
                               measure_noise, speech_threshold_for_noise)
 from jarvis.voice.wake_verify import WakeCandidateTracker, match_wake
@@ -51,6 +51,12 @@ from jarvis.voice.wake_word import WakeDetection, WakeWordDetector, hey_threshol
 log = logging.getLogger(__name__)
 S = AssistantState
 
+# --- EKRAN --- dikte modu
+DICTATION_IDLE_LIMIT_S = 120.0      # bu kadar süre hiç konuşulmazsa dikte kendiliğinden kapanır
+DICTATION_DETAIL = ("Dikte modu açık: söylediklerini odaktaki pencereye yazıyorum. Bitirmek için "
+                    "\"dikte bitti\" de.")
+# --- EKRAN sonu ---
+
 
 # ---------- dışarıya yayınlanan veriler ----------
 class MicState(str, enum.Enum):
@@ -58,6 +64,7 @@ class MicState(str, enum.Enum):
     IDLE = "Dinlemiyor"                  # ses motoru hazır değil ya da düşünüyor
     WAKE = "Uyandırma bekleniyor"
     LISTENING = "Dinliyor"
+    DICTATION = "Dikte ediliyor"         # --- EKRAN --- söylenenler odaktaki pencereye yazılıyor
 
 
 @dataclass(frozen=True)
@@ -336,6 +343,12 @@ class VoiceManager:
         self.gpu_progress: CudaProgress | None = None
         self.running = False
         self.status = VoiceStatus(MicState.IDLE, False, False, False, "Ses motoru henüz başlatılmadı.")
+        # --- EKRAN --- dikte modu ve araçlardan seslendirme
+        self.dictation: Any = None              # DictationSession (jarvis/tools/dictation.py) ya da None
+        self._dictation_last = 0.0               # dikte modunda son konuşma zamanı (monotonic)
+        self._spoke_in_turn = False              # bu sesli istekte bir araç zaten konuştu mu
+        self._register_bridge(chat)
+        # --- EKRAN sonu ---
         self._unsubs = [
             bus.subscribe(Topics.MICROPHONE_TOGGLED, self._on_mic_toggled),
             bus.subscribe(Topics.STATE_CHANGED, self._on_state_changed),
@@ -408,6 +421,7 @@ class VoiceManager:
 
     async def shutdown(self) -> None:
         self._cancel.set()
+        self.dictation = None   # --- EKRAN ---
         self._gpu_cancel.set()       # süren cuBLAS indirmesi 1 MB içinde durur (yarım dosya devam için kalır)
         self.running = False
         self._stop_speaking()
@@ -426,6 +440,7 @@ class VoiceManager:
     async def restart(self) -> None:
         """Aygıt ya da model ayarı değişince: her şeyi kapatıp yeniden hazırlar."""
         self._cancel.set()
+        self.dictation = None   # --- EKRAN ---
         while self._starting:   # süren indirme/yükleme iptali görsün
             await asyncio.sleep(0.05)
         self._stop_speaking()
@@ -616,6 +631,11 @@ class VoiceManager:
         if self._loop is None:
             return
         if not enabled:
+            # --- EKRAN ---
+            if self.dictation is not None:
+                self.dictation = None
+                self.bus.publish(Topics.NOTICE, "Mikrofon kapandığı için dikte modu kapandı.")
+            # --- EKRAN sonu ---
             if self.state.state in (S.WAKE_DETECTED, S.LISTENING):
                 self.state.reset()
             # Kapatma gecikmesin: akış hemen kapanır (thread birleşmesi arka planda)
@@ -663,6 +683,15 @@ class VoiceManager:
         elif isinstance(ev, UtteranceEvent):
             self._spawn(self._handle_utterance(ev.audio, ev.truncated), "voice-utterance")
         elif isinstance(ev, NoSpeechEvent):
+            # --- EKRAN --- dikte modunda sessizlik dinlemeyi bitirmez (uzun sessizlik dikteyi kapatır)
+            if self.dictation is not None and self.state.state in (S.WAKE_DETECTED, S.LISTENING):
+                if time.monotonic() - self._dictation_last < DICTATION_IDLE_LIMIT_S:
+                    proc.set_mode(Mode.LISTEN)
+                    return
+                self.dictation = None
+                log.info("Dikte modu uzun sessizlik nedeniyle kapandı")
+                self.bus.publish(Topics.NOTICE, "Uzun süre bir şey söylemediğin için dikte modunu kapattım.")
+            # --- EKRAN sonu ---
             if self.state.state in (S.WAKE_DETECTED, S.LISTENING):
                 self.state.reset()
         elif isinstance(ev, BargeInEvent):
@@ -729,6 +758,11 @@ class VoiceManager:
 
     def _on_state_changed(self, change: StateChange) -> None:
         self._sync_mode()
+        # --- EKRAN --- dikte modunda beklemeye dönülünce uyandırma kelimesi beklenmez, dinlemeye geçilir
+        if (self.dictation is not None and change.new is S.STANDBY and not self._busy
+                and self._loop is not None):
+            self._loop.call_soon(self._dictation_listen)
+        # --- EKRAN sonu ---
         self._publish_status()
 
     def _sync_mode(self, force: bool = False) -> None:
@@ -790,6 +824,7 @@ class VoiceManager:
         if truncated:
             log.info("Konuşma en uzun süreye ulaştı, olduğu kadarı işleniyor")
         self._busy = True
+        self._spoke_in_turn = False   # --- EKRAN ---
         try:
             self.state.transition(S.PROCESSING, "Söylediğini yazıya çeviriyorum")
             try:
@@ -809,6 +844,10 @@ class VoiceManager:
         finally:
             self._busy = False
             self._sync_mode()
+            # --- EKRAN --- dikte açıldıysa (ya da sürüyorsa) uyandırma kelimesi beklemeden dinle
+            if self.dictation is not None and self.state.state is S.STANDBY:
+                self._dictation_listen()
+            # --- EKRAN sonu ---
             self._publish_status()
 
     async def _handle_text_request(self, tr: Transcript) -> None:
@@ -828,7 +867,17 @@ class VoiceManager:
 
     async def _process_transcript(self, tr: Transcript) -> None:
         """Tanınan metni yayınlar ve isteği işler (yerel komut ya da Claude), cevabı seslendirir."""
+        self._spoke_in_turn = False   # --- EKRAN --- (uyandırma doğrulamasından gelen komut için de)
         self.bus.publish(Topics.VOICE_TRANSCRIPT, tr)
+        # --- EKRAN --- dikte modu: metin Claude'a değil, odaktaki pencereye yazılır
+        if self.dictation is not None:
+            self._dictation_last = time.monotonic()
+            if tr.text:
+                await self._dictate(tr.text)
+            else:
+                self._dictation_listen()
+            return
+        # --- EKRAN sonu ---
         if not tr.text:
             # Gürültüde "anlayamadım" döngüsüne girme: art arda ikincisinde sessizce beklemeye dön
             self._empty_streak += 1
@@ -839,6 +888,10 @@ class VoiceManager:
                 self.state.reset()
             return
         self._empty_streak = 0
+        # --- EKRAN --- sesle söylenen "dikte modu": kullanıcının kendi sesi onaydır (onay penceresi yok)
+        if await self._voice_dictation_start(tr.text):
+            return
+        # --- EKRAN sonu ---
         failed: list[str] = []
         answers: list[Any] = []   # yerel komutlar sonucu CHAT_DONE ile duyurur, değer döndürmez
         unsubs = [self.bus.subscribe(Topics.CHAT_FAILED, failed.append),
@@ -856,7 +909,10 @@ class VoiceManager:
             self.state.reset()   # send erken döndüyse (meşgul, anahtar yok) durum kalmış olabilir
         if done is None and answers and hasattr(answers[-1], "text"):
             done = answers[-1]
-        if done is not None:
+        if done is not None and self._spoke_in_turn:   # --- EKRAN --- araç zaten seslendirdi
+            if self.state.state not in (S.STANDBY, S.ERROR):
+                self.state.reset()
+        elif done is not None:
             await self._speak(done.text, follow_up=True)
         elif failed and self.state.state is not S.ERROR:
             await self._speak(failed[-1], follow_up=False)
@@ -909,12 +965,14 @@ class VoiceManager:
             self.state.reset()
         return completed
 
-    def _speak_blocking(self, text: str, rate: float, cancel: threading.Event) -> bool:
+    def _speak_blocking(self, text: str, rate: float, cancel: threading.Event, tts: Any = None,
+                        max_chars: int = MAX_SPOKEN_CHARS) -> bool:
         comps = self.components
-        assert comps is not None and comps.tts is not None and comps.player is not None
-        tts, player = comps.tts, comps.player
+        tts = tts or (comps.tts if comps is not None else None)   # --- EKRAN --- başka dilde ses verilebilir
+        assert comps is not None and tts is not None and comps.player is not None
+        player = comps.player
         try:
-            for sentence in split_sentences(speakable_text(text)):
+            for sentence in split_sentences(speakable_text(text, max_chars)):
                 if cancel.is_set():
                     return False
                 audio = tts.synthesize(sentence, rate)
@@ -954,6 +1012,114 @@ class VoiceManager:
             except Exception:  # noqa: BLE001
                 log.debug("Uyandırma sesi çalınamadı", exc_info=True)
         self._executor.submit(play)
+
+    # --- EKRAN --- araçlardan seslendirme ve dikte modu (jarvis/voice/bridge.py üzerinden)
+    def _register_bridge(self, chat: Any) -> None:  # noqa: ANN401
+        """Araç bağlamına ses köprüsünü koyar (ChatService.tools = ToolService ise)."""
+        ctx = getattr(getattr(chat, "tools", None), "ctx", None)
+        extra = getattr(ctx, "extra", None)
+        if isinstance(extra, dict):
+            from jarvis.voice.bridge import VoiceBridge
+
+            extra["voice"] = VoiceBridge(self)
+
+    def speak_external(self, text: str, tts: Any = None, max_chars: int = 1500) -> bool:  # noqa: ANN401
+        """Araç thread'inden engelleyici seslendirme (seçili metni oku, İngilizce söyle).
+
+        Durum makinesine dokunmaz (araç çalışırken durum YÜRÜTÜYOR'dur ve mikrofon bekletilir).
+        Sesli bir isteğin içinde konuşulduysa aynı istek sonunda cevap ikinci kez okunmaz.
+        """
+        comps = self.components
+        if comps is None or comps.player is None or (tts or comps.tts) is None or not text.strip():
+            return False
+        cancel = threading.Event()
+        with self._speak_lock:
+            self._speak_cancel = cancel      # kapanış/yeniden başlatma bu konuşmayı da durdurur
+        if self._busy:
+            self._spoke_in_turn = True
+        return self._speak_blocking(text, self.settings.speech_rate, cancel, tts=tts, max_chars=max_chars)
+
+    def start_dictation(self, session: Any) -> None:  # noqa: ANN401
+        """Dikte modunu açar (döngü thread'inde). Mikrofon ya da konuşma tanıma yoksa Türkçe hata."""
+        if not self.ready:
+            raise JarvisError("dikte: tanıma yok", "Dikte için konuşma tanımanın hazır olması gerekiyor. "
+                              + (self.status.detail or ""))
+        if not self.settings.microphone_enabled or self.mic is None:
+            raise JarvisError("dikte: mikrofon kapalı", "Dikte için mikrofonun açık olması gerekiyor.")
+        self.dictation = session
+        self._dictation_last = time.monotonic()
+        log.info("Dikte modu açıldı")
+        if not self._busy and self.state.state is S.STANDBY:
+            self._dictation_listen()
+        self._publish_status()
+
+    def stop_dictation(self) -> bool:
+        if self.dictation is None:
+            return False
+        self.dictation = None
+        log.info("Dikte modu kapandı")
+        if not self._busy and self.state.state in (S.WAKE_DETECTED, S.LISTENING):
+            self.state.reset()
+        self._publish_status()
+        return True
+
+    def _dictation_listen(self) -> None:
+        """Dikte sürüyorsa uyandırma kelimesi beklemeden dinlemeye geçer."""
+        if self.dictation is None or self.processor is None or self.mic is None or not self.ready:
+            return
+        if self.state.state in (S.STANDBY, S.PROCESSING):
+            self.state.transition(S.LISTENING, "Dikte: dinliyorum")
+        if self.state.state is S.LISTENING and self.processor.mode is not Mode.LISTEN:
+            self.processor.set_mode(Mode.LISTEN)
+        self._publish_status()
+
+    async def _voice_dictation_start(self, text: str) -> bool:
+        """"Dikte modu" sesle söylendiyse aracı onay penceresi açmadan çalıştırır (kaynak "ses").
+
+        Yazılı komut ve Claude için aynı araç onay ister; sesle söylemek kullanıcının açık isteğidir."""
+        registry = getattr(getattr(self.chat, "tools", None), "registry", None)
+        if registry is None or registry.get("dictation") is None:
+            return False
+        from jarvis.tools.intents import parse
+
+        intent = parse(text)
+        if intent is None or intent.tool != "dictation" or intent.args.get("action") != "start":
+            return False
+        from jarvis.core.chat_service import ChatDone, ChatStarted
+        from jarvis.core.tool_service import LOCAL_MODEL_NAME
+
+        async def spoken_consent(prompt: Any) -> bool:  # noqa: ANN401
+            return True
+
+        self.bus.publish(Topics.CHAT_STARTED, ChatStarted(text, LOCAL_MODEL_NAME, "yerel", False))
+        if self.state.can_transition(S.EXECUTING):
+            self.state.transition(S.EXECUTING, "Dikte modu")
+        result = await registry.execute("dictation", dict(intent.args), spoken_consent, source="ses")
+        self.bus.publish(Topics.TOOL_EXECUTED, result)
+        self.bus.publish(Topics.CHAT_DONE, ChatDone(result.summary, LOCAL_MODEL_NAME, 0.0))
+        await self._speak(result.summary, follow_up=True)
+        return True
+
+    async def _dictate(self, text: str) -> None:
+        """Tanınan metni noktalama sözcükleriyle biçimleyip odaktaki pencereye yazar."""
+        session = self.dictation
+        try:
+            result = await asyncio.get_running_loop().run_in_executor(self._executor, session.handle, text)
+        except Exception as e:  # noqa: BLE001
+            log.warning("Dikte yazılamadı: %s", e)
+            msg = e.user_message if isinstance(e, JarvisError) else "Söylediğini yazamadım."
+            self.dictation = None
+            self.bus.publish(Topics.VOICE_ERROR, f"{msg} Dikte modu kapandı.")
+            if self.state.state not in (S.STANDBY, S.ERROR):
+                self.state.reset()
+            return
+        if result == "stop":
+            self.dictation = None
+            log.info("Dikte modu sesli komutla kapandı")
+            await self._speak("Dikte modu kapandı.", follow_up=False)
+            return
+        self._dictation_listen()
+    # --- EKRAN sonu ---
 
     # ---------- ayarlar ekranı için ----------
     async def speak_test(self, text: str = "Merhaba, ben JARVIS. Sesimi rahat duyabiliyor musun?") -> None:
@@ -1049,6 +1215,8 @@ class VoiceManager:
             return VoiceStatus(MicState.OFF, True, wake, tts, "Mikrofon kapalı; hiçbir şey dinlenmiyor.", label)
         if self.mic is None:
             return VoiceStatus(MicState.IDLE, True, wake, tts, self._error or "Mikrofon açılıyor…", label)
+        if self.dictation is not None:   # --- EKRAN ---
+            return VoiceStatus(MicState.DICTATION, True, wake, tts, DICTATION_DETAIL, label)
         st = self.state.state
         if st in (S.WAKE_DETECTED, S.LISTENING):
             return VoiceStatus(MicState.LISTENING, True, wake, tts, "Dinliyorum.", label)
