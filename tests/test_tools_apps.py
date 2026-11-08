@@ -83,8 +83,8 @@ def test_start_menu_scan(tmp_path):
     (d / "Discord Inc").mkdir(parents=True)
     (d / "Discord Inc" / "Discord.lnk").write_bytes(b"L\x00\x00\x00")
     (d / "Uninstall Discord.lnk").write_bytes(b"L")
-    (d / "Hades.url").write_text("[InternetShortcut]\nURL=steam://rungameid/1145360\n")
-    (d / "Site.url").write_text("[InternetShortcut]\nURL=https://example.com\n")
+    (d / "Hades.url").write_text("[InternetShortcut]\nURL=steam://rungameid/1145360\n", encoding="utf-8")
+    (d / "Site.url").write_text("[InternetShortcut]\nURL=https://example.com\n", encoding="utf-8")
     found = {e.name: e for e in apps.scan_start_menu([d])}
     assert set(found) == {"Discord", "Hades"}
     assert found["Hades"].kind == "game" and found["Hades"].target == "steam://rungameid/1145360"
@@ -128,14 +128,14 @@ def _steam_fixture(tmp_path):
     for p in (root, lib2):
         (p / "steamapps").mkdir(parents=True)
     esc = lambda p: str(p).replace("\\", "\\\\")  # noqa: E731
-    (root / "steamapps" / "libraryfolders.vdf").write_text(LIBRARY_VDF % (esc(root), esc(lib2)))
-    (root / "steamapps" / "appmanifest_730.acf").write_text(MANIFEST % ("730", "Counter-Strike 2", "cs2"))
+    (root / "steamapps" / "libraryfolders.vdf").write_text(LIBRARY_VDF % (esc(root), esc(lib2)), encoding="utf-8")
+    (root / "steamapps" / "appmanifest_730.acf").write_text(MANIFEST % ("730", "Counter-Strike 2", "cs2"), encoding="utf-8")
     (root / "steamapps" / "appmanifest_228980.acf").write_text(
-        MANIFEST % ("228980", "Steamworks Common Redistributables", "Steamworks Shared"))
-    (lib2 / "steamapps" / "appmanifest_1145360.acf").write_text(MANIFEST % ("1145360", "Hades", "Hades"))
+        MANIFEST % ("228980", "Steamworks Common Redistributables", "Steamworks Shared"), encoding="utf-8")
+    (lib2 / "steamapps" / "appmanifest_1145360.acf").write_text(MANIFEST % ("1145360", "Hades", "Hades"), encoding="utf-8")
     (lib2 / "steamapps" / "appmanifest_1628350.acf").write_text(
-        MANIFEST % ("1628350", "Steam Linux Runtime 3.0 (sniper)", "SteamLinuxRuntime_sniper"))
-    (lib2 / "steamapps" / "appmanifest_999.acf").write_text("bozuk { dosya")
+        MANIFEST % ("1628350", "Steam Linux Runtime 3.0 (sniper)", "SteamLinuxRuntime_sniper"), encoding="utf-8")
+    (lib2 / "steamapps" / "appmanifest_999.acf").write_text("bozuk { dosya", encoding="utf-8")
     return root, lib2
 
 
@@ -162,7 +162,7 @@ def test_steam_old_library_format(tmp_path):
     (root / "steamapps").mkdir(parents=True)
     (lib2 / "steamapps").mkdir(parents=True)
     (root / "steamapps" / "libraryfolders.vdf").write_text(
-        '"LibraryFolders"\n{\n "TimeNextStatsReport" "1"\n "1" "%s"\n}' % str(lib2).replace("\\", "\\\\"))
+        '"LibraryFolders"\n{\n "TimeNextStatsReport" "1"\n "1" "%s"\n}' % str(lib2).replace("\\", "\\\\"), encoding="utf-8")
     assert apps.steam_libraries(root) == [root, lib2]
     assert apps.steam_libraries(tmp_path / "yok") == [tmp_path / "yok"]
 

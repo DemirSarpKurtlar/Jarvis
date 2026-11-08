@@ -1,3 +1,5 @@
+import time
+
 from jarvis.system.monitor import SystemMonitor
 
 
@@ -5,6 +7,7 @@ def test_sample_returns_real_sane_values():
     m = SystemMonitor()
     try:
         a = m.sample()
+        time.sleep(0.2)  # Windows'ta saat çözünürlüğü ~15 ms: hız için gerçek bir aralık gerekir
         b = m.sample()
     finally:
         m.close()

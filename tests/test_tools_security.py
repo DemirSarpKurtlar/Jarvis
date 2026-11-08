@@ -17,7 +17,7 @@ def roots(tmp_path):
     desk, dl, outside = tmp_path / "Desktop", tmp_path / "Downloads", tmp_path / "disarisi"
     for d in (desk, dl, outside):
         d.mkdir()
-    (outside / "gizli.txt").write_text("gizli")
+    (outside / "gizli.txt").write_text("gizli", encoding="utf-8")
     return {"desktop": desk, "downloads": dl, "outside": outside}
 
 
@@ -28,7 +28,7 @@ def sandbox(roots):
 
 
 def test_resolve_inside_roots(sandbox, roots):
-    (roots["desktop"] / "a.txt").write_text("x")
+    (roots["desktop"] / "a.txt").write_text("x", encoding="utf-8")
     assert sandbox.resolve(str(roots["desktop"] / "a.txt"), must_exist=True) == (roots["desktop"] / "a.txt").resolve()
     # Türkçe ve İngilizce kök adlarıyla göreli yol
     assert sandbox.resolve("Masaüstü/a.txt") == (roots["desktop"] / "a.txt").resolve()

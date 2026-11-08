@@ -128,7 +128,7 @@ def test_unmatched_text_goes_to_claude(tmp_path):
 
 def test_confirmation_through_bus(tmp_path):
     a, ctx, _ = make_assistant(tmp_path)
-    (tmp_path / "Desktop" / "sil.txt").write_text("x")
+    (tmp_path / "Desktop" / "sil.txt").write_text("x", encoding="utf-8")
 
     async def go():
         a.bus.bind_loop(asyncio.get_running_loop())
