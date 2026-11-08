@@ -247,6 +247,38 @@ def _power(f: str) -> Intent | None:
     return None
 
 
+# --- BELGE ---
+# "son indirdiğim ..." ile başlayan ama anlaşılamayan cümle uygulama adı sanılmasın: Claude'a kalır
+_LATEST = re.compile(r"(?:en\s+)?son\s+(?:indirdigim|indirilen|indirdigimiz|inen)\b|"
+                     r"(?:indirdigim|indirilen)\s+(?:en\s+)?son\b")
+_CLIP = r"(?:panoyu|pano|panodakini|panodakileri|panodaki metni|clipboard'?u|clipboard)"
+
+
+def _documents(f: str) -> Intent | None:
+    """Pano ve son indirilen dosya: "panoyu temizle", "panoda ne var", "son indirdiğim PDF'i aç"."""
+    if re.fullmatch(_CLIP + r"\s+(?:temizle|bosalt|sil)(?:r misin|ir misin|yebilir misin|ebilir misin)?", f):
+        return Intent("write_clipboard", {"text": ""}, "Panoyu temizleme")
+    if re.fullmatch(r"(?:panoda|panomda|clipboard'?da)\s+ne\s+var(?:\s+ne\s+yok)?|"
+                    r"(?:panoyu|panodakini|panodaki metni)\s+(?:oku|goster|soyle)(?:r misin|ur musun|ebilir misin)?",
+                    f):
+        return Intent("read_clipboard", {"max_chars": 2000}, "Pano")
+    m = re.fullmatch(r"(?:en\s+)?son\s+(?:indirdigim|indirilen|indirdigimiz|inen)\s+(.+?)\s+" + _OPEN, f) or \
+        re.fullmatch(r"(?:indirdigim|indirilen)\s+(?:en\s+)?son\s+(.+?)\s+" + _OPEN, f)
+    if not m:
+        return None
+    what = fold(_name(m.group(1)))
+    what = re.sub(r"\s*\b(?:dosyasini|dosyayi|dosyami|dosya|dosyasi|belgesini|belgeyi|belgemi|belge)$", "",
+                  what).strip()
+    ext = ""
+    if what:
+        key = _lookup_key(what, EXTENSION_WORDS)
+        if key is None:
+            return None
+        ext = EXTENSION_WORDS[key]
+    return Intent("latest_download", {"extension": ext, "action": "open", "max_chars": 1000}, "Son indirilen dosya")
+# --- BELGE sonu ---
+
+
 def parse(text: str) -> Intent | None:
     if not isinstance(text, str) or len(text) > 300:
         return None
@@ -261,6 +293,11 @@ def parse(text: str) -> Intent | None:
         hit = rule(f)
         if hit:
             return hit
+    # --- BELGE ---
+    hit = _documents(f)
+    if hit or _LATEST.match(f):
+        return hit
+    # --- BELGE sonu ---
 
     # web araması: "google'da kedi videoları ara", "internette hava durumu ara"
     m = re.fullmatch(r"(google|youtube|bing|internet|web|vikipedi|wikipedia)'?(?:da|de|ta|te|dan|den|ten)?\s+(.+?)\s+"
