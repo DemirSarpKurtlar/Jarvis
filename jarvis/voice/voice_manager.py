@@ -37,6 +37,7 @@ from jarvis.core.events import EventBus, Topics
 from jarvis.core.state import AssistantState, StateChange, StateMachine
 from jarvis.voice.audio_io import Frame, MicrophoneStream, make_chime, volume_to_gain
 from jarvis.voice.components import ComponentLoader, RealComponentLoader, VoiceComponents, VoiceDisabled
+from jarvis.voice.cuda_libs import CudaLibCancelled, CudaLibInstaller, CudaProgress, GpuReport
 from jarvis.voice.echo import EchoGuard
 from jarvis.voice.models import DownloadProgress
 from jarvis.voice.stt import Transcript, clean_transcript
@@ -66,6 +67,7 @@ class VoiceStatus:
     detail: str            # kullanıcıya açıklama
     stt_label: str = ""
     starting: bool = False
+    gpu: GpuReport | None = None     # ekran kartı durumu (Ayarlar > Ses, hızlandırma düğmesi)
 
 
 @dataclass(frozen=True)
@@ -304,6 +306,11 @@ class VoiceManager:
         self._tasks: set[asyncio.Task] = set()
         self._error: str | None = None
         self._starting = False
+        # Ekran kartı kütüphaneleri (cuBLAS) indirmesi: kendi daemon thread'inde, kapanışta iptal edilir
+        self.cuda_installer: Any = None          # None = CudaLibInstaller() (testler sahtesini verir)
+        self._gpu_cancel = threading.Event()
+        self.gpu_installing = False
+        self.gpu_progress: CudaProgress | None = None
         self.running = False
         self.status = VoiceStatus(MicState.IDLE, False, False, False, "Ses motoru henüz başlatılmadı.")
         self._unsubs = [
@@ -375,6 +382,7 @@ class VoiceManager:
 
     async def shutdown(self) -> None:
         self._cancel.set()
+        self._gpu_cancel.set()       # süren cuBLAS indirmesi 1 MB içinde durur (yarım dosya devam için kalır)
         self.running = False
         self._stop_speaking()
         for t in list(self._tasks):
@@ -407,6 +415,104 @@ class VoiceManager:
         if self.state.state not in (S.STANDBY, S.ERROR):
             self.state.reset()
         await self.start()
+
+    # ---------- ekran kartı hızlandırması ----------
+    @property
+    def gpu_offer(self) -> bool:
+        """"Ekran kartı hızlandırmasını indir" teklif edilsin mi (NVIDIA var, cuBLAS eksik, GPU kullanılmıyor)."""
+        comps = self.components
+        return (comps is not None and comps.gpu is not None and comps.gpu.offer_download
+                and not self.gpu_installing)
+
+    def cancel_gpu_install(self) -> None:
+        self._gpu_cancel.set()
+
+    async def install_gpu_libs(self) -> CudaProgress:
+        """cuBLAS'ı indirir/kurar (arka planda), sonra ses motorunu yeniden başlatıp sonucu dürüstçe bildirir.
+
+        Asla döngüye girmez: kurulumdan sonra GPU yine çalışmazsa işlemcide kalınır, düğme gizlenir
+        ve neden çalışmadığı söylenir. Qt thread'ini hiç bekletmez.
+        """
+        if self.gpu_installing:
+            return self.gpu_progress or CudaProgress("download")
+        loop = asyncio.get_running_loop()
+        self.gpu_installing = True
+        self._gpu_cancel.clear()
+        self._publish_status()
+
+        def publish(p: CudaProgress) -> None:
+            self.gpu_progress = p
+            self.bus.publish(Topics.VOICE_GPU, p)
+
+        def finish(result: CudaProgress) -> CudaProgress:
+            self.gpu_installing = False      # sonuç yayınlanmadan önce: arayüz düğmeyi doğru göstersin
+            self._publish_status()
+            publish(result)
+            return result
+
+        def progress_threadsafe(p: CudaProgress) -> None:
+            if p.finished or p.error:
+                return       # sonucu aşağıda (yeniden başlatmadan sonra) tek seferde yayınlarız
+            if not loop.is_closed():
+                try:
+                    loop.call_soon_threadsafe(publish, p)
+                except RuntimeError:
+                    pass
+
+        try:
+            installer = self.cuda_installer or CudaLibInstaller()
+            publish(CudaProgress("download", 0, None))
+            fut: asyncio.Future = loop.create_future()
+
+            def work() -> None:
+                try:
+                    res: object = installer.install(progress_threadsafe, self._gpu_cancel)
+                except BaseException as e:  # noqa: BLE001 - sonucu asyncio tarafına taşı
+                    res = e
+                if not loop.is_closed():
+                    try:
+                        loop.call_soon_threadsafe(lambda: fut.done() or (
+                            fut.set_exception(res) if isinstance(res, BaseException) else fut.set_result(res)))
+                    except RuntimeError:
+                        pass
+
+            # Daemon thread: uygulama kapanırken indirme sürüyorsa çıkışı bekletmez
+            threading.Thread(target=work, name="jarvis-cuda-indirme", daemon=True).start()
+            try:
+                await fut
+            except CudaLibCancelled as e:
+                log.info("Ekran kartı kütüphaneleri indirmesi iptal edildi")
+                result = CudaProgress("download", error=e.user_message)
+                return finish(result)
+            except JarvisError as e:
+                result = CudaProgress("download", error=e.user_message)
+                return finish(result)
+            except Exception as e:  # noqa: BLE001
+                log.exception("Ekran kartı kütüphaneleri kurulamadı")
+                result = CudaProgress("download", error=f"beklenmeyen hata ({type(e).__name__}).")
+                return finish(result)
+            if self._gpu_cancel.is_set():
+                result = CudaProgress("download", error="İndirme iptal edildi.")
+                return finish(result)
+            publish(CudaProgress("restart"))
+            await self.restart()
+            comps = self.components
+            gpu = comps.gpu if comps is not None else None
+            if gpu is not None and gpu.on_gpu:
+                msg = f"Ekran kartı hızlandırması etkin: konuşma tanıma {comps.stt_label}."  # type: ignore[union-attr]
+                result = CudaProgress("done", finished=True, message=msg, ok=True)
+                log.info(msg)
+            else:
+                label = comps.stt_label if comps is not None and comps.stt_label else "hazır değil"
+                why = gpu.summary() if gpu is not None else "Ses motoru hazır değil."
+                msg = f"Kütüphaneler kuruldu. {why} Konuşma tanıma: {label}."
+                result = CudaProgress("done", finished=True, message=msg, ok=False)
+                log.warning("Ekran kartı kütüphaneleri kuruldu ama GPU kullanılamadı: %s",
+                            gpu.detail if gpu is not None else "ses motoru yok")
+            return finish(result)
+        finally:
+            self.gpu_installing = False
+            self._publish_status()
 
     def _endpoint_config(self) -> EndpointConfig:
         v = self.settings
@@ -855,6 +961,8 @@ class VoiceManager:
 
     def _publish_status(self) -> None:
         st = self._compute_status()
+        comps = self.components
+        st = dataclasses.replace(st, gpu=comps.gpu if comps is not None else None)
         if st != self.status:
             self.status = st
             self.bus.publish(Topics.VOICE_STATUS, st)
