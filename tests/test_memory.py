@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from tests.fake_api import FakeAPI, json_message, text_stream
+from jarvis.storage.database import MIGRATIONS
 from jarvis.ai.prompts import STABLE_SYSTEM_PROMPT
 from jarvis.ai.usage import UsageTracker
 from jarvis.config.settings import SettingsStore
@@ -87,7 +88,7 @@ def test_persists_across_reopen(tmp_path):
     assert r.action == "eklendi" and r.memory.status == ACTIVE
     db.close()
     db2 = Database(tmp_path / "j.db")
-    assert db2.schema_version == 2
+    assert db2.schema_version == len(MIGRATIONS)
     items = MemoryStore(db2).list()
     assert [m.content for m in items] == ["Cevapları kısa ve net tercih ediyor."]
     assert items[0].importance == 4
@@ -106,7 +107,7 @@ def test_existing_phase2_database_is_upgraded(tmp_path, monkeypatch):
     old.close()
     monkeypatch.setattr(dbmod, "MIGRATIONS", full)
     new = Database(tmp_path / "j.db")
-    assert new.schema_version == 2
+    assert new.schema_version == len(MIGRATIONS)
     assert new.query("SELECT title FROM conversations")[0][0] == "eski"   # eski veri korunur
     assert MemoryStore(new).add(mem("Steam kullanıyor.", "app")).action == "eklendi"
     new.close()

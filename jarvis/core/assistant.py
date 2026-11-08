@@ -19,6 +19,7 @@ from jarvis.core.chat_service import ChatService, ClientFactory
 from jarvis.core.errors import add_error_listener, remove_error_listener
 from jarvis.core.events import EventBus, Topics
 from jarvis.core.state import AssistantState, StateMachine
+from jarvis.core.tool_service import ToolService  # Aşama 5
 from jarvis.ai.claude_client import ClaudeClient
 from jarvis.memory.service import MemoryService
 from jarvis.paths import AppPaths
@@ -39,6 +40,7 @@ class Assistant:
         data_dir: Path | None = None,
         credentials: CredentialStore | None = None,
         client_factory: ClientFactory = ClaudeClient,
+        tool_context=None,  # noqa: ANN001  Aşama 5: testlerde sahte araç arka uçları
     ) -> None:
         self.store = store
         self.bus = bus or EventBus()
@@ -59,6 +61,11 @@ class Assistant:
         self.memory = MemoryService(store, self.bus, self.db, self._executor, self.chat.tracker,
                                     lambda: self.chat._client)
         self.chat.memory = self.memory
+        # --- Aşama 5: araçlar ve güvenlik ---
+        self.tool_service = ToolService(store, self.bus, self.state, self.db, tool_context)
+        self.tools = self.tool_service.registry      # ToolRegistry (Claude araç kullanımı için)
+        self.audit = self.tool_service.audit         # AuditLogger
+        # --- Aşama 5 sonu ---
 
     @property
     def settings(self) -> Settings:
@@ -74,6 +81,8 @@ class Assistant:
         # Anahtar doğrulaması ağ beklerken arayüz açılışını geciktirmesin
         self._tasks.append(asyncio.create_task(self.chat.start(), name="claude-start"))
         self._tasks.append(asyncio.create_task(self.memory.start(), name="memory-start"))  # Aşama 4
+        self.tool_service.bind_loop(self._loop)  # Aşama 5
+        self._tasks.append(asyncio.create_task(self.tool_service.warm_up(), name="apps-index"))
         self.running = True
         log.info("Asistan çekirdeği başlatıldı")
 
@@ -93,7 +102,17 @@ class Assistant:
 
     def send_text(self, text: str) -> asyncio.Task:
         """Arayüzden gelen yazılı mesajı arka planda işler."""
-        return self.spawn(self.chat.send(text), "chat-send")
+        return self.spawn(self._handle_text(text), "chat-send")
+
+    async def _handle_text(self, text: str):  # noqa: ANN202
+        # Aşama 5: basit yerel komutlar ("Notepad'i aç") Claude API'siz çalışır
+        if await self.tool_service.handle_local(text, chat_busy=self.chat.busy):
+            return None
+        return await self.chat.send(text)
+
+    def run_tool(self, name: str, args: dict, source: str = "arayuz") -> asyncio.Task:
+        """Arayüzden bir aracı (izin ve onay denetimiyle) arka planda çalıştırır."""
+        return self.spawn(self.tool_service.run(name, args, source), f"tool-{name}")
 
     async def _monitor_loop(self) -> None:
         assert self._loop is not None and self._monitor is not None
@@ -102,6 +121,7 @@ class Assistant:
             try:
                 snap = await self._loop.run_in_executor(self._executor, self._monitor.sample)
                 failures = 0
+                self.tool_service.last_snapshot = snap  # Aşama 5: donanım araçları son ölçümü okur
                 self.bus.publish(Topics.SYSTEM_SNAPSHOT, snap)
             except asyncio.CancelledError:
                 raise
@@ -149,6 +169,7 @@ class Assistant:
         await asyncio.gather(*self._tasks, return_exceptions=True)
         self._tasks.clear()
         await self.chat.shutdown()
+        self.tool_service.shutdown()  # Aşama 5
         if self._monitor is not None:
             self._monitor.close()
         self._executor.shutdown(wait=True, cancel_futures=True)

@@ -80,6 +80,17 @@ class MemorySettings(_Section):
     enabled: bool = True
 
 
+# --- Aşama 5: araçlar ---
+class ToolSettings(_Section):
+    # Dosya araçlarının varsayılan kullanıcı klasörlerine ek olarak erişebileceği klasörler
+    extra_allowed_roots: list[str] = Field(default_factory=list)
+    # Açıkken yalnızca okuma (READ) araçları çalışır
+    read_only: bool = False
+    # Onay penceresi bu süre içinde yanıtlanmazsa işlem yapılmaz
+    confirm_timeout_s: int = Field(120, ge=10, le=600)
+# --- Aşama 5 sonu ---
+
+
 class Settings(_Section):
     schema_version: int = SCHEMA_VERSION
     general: GeneralSettings = Field(default_factory=GeneralSettings)
@@ -88,6 +99,7 @@ class Settings(_Section):
     budget: BudgetSettings = Field(default_factory=BudgetSettings)
     voice: VoiceSettings = Field(default_factory=VoiceSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    tools: ToolSettings = Field(default_factory=ToolSettings)  # Aşama 5
 
 
 class SettingsStore:

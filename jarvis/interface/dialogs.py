@@ -87,3 +87,24 @@ def ask_budget(parent: QWidget, question: str, answer: Callable[[bool], None]) -
     box.finished.connect(lambda _r: answer(box.clickedButton() is yes))
     box.open()
     return box
+
+
+# --- Aşama 5: araç onayı ---
+def ask_tool_confirmation(parent: QWidget, prompt, answer: Callable[[bool], None]) -> QMessageBox:  # noqa: ANN001
+    """Engellemeyen araç onayı. Varsayılan düğme "Vazgeç"; kalıcı işlemlerde kırmızı uyarı."""
+    box = QMessageBox(parent)
+    box.setWindowTitle(f"JARVIS onay istiyor: {prompt.title}")
+    box.setText(prompt.message)
+    box.setIcon(QMessageBox.Icon.Critical if prompt.danger else QMessageBox.Icon.Question)
+    if prompt.danger:
+        box.setInformativeText("Bu işlem geri alınamayabilir.")
+    yes = box.addButton(prompt.confirm_label, QMessageBox.ButtonRole.AcceptRole)
+    no = box.addButton(prompt.cancel_label, QMessageBox.ButtonRole.RejectRole)
+    if prompt.danger:
+        yes.setStyleSheet(f"color:{C.KIZIL};")
+    box.setDefaultButton(no)
+    box.setEscapeButton(no)
+    box.finished.connect(lambda _r: answer(box.clickedButton() is yes))
+    box.open()
+    return box
+# --- Aşama 5 sonu ---

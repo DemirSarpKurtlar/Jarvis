@@ -30,9 +30,10 @@ from jarvis.core.chat_service import ClaudeStatus
 from jarvis.interface.chat_view import ChatView
 from jarvis.interface.components import icon
 from jarvis.interface.conversations_view import ConversationsView
-from jarvis.interface.dialogs import ask_budget
+from jarvis.interface.dialogs import ask_budget, ask_tool_confirmation
 from jarvis.interface.memory_view import MemoryView
 from jarvis.interface.settings_view import SettingsView
+from jarvis.interface.system_view import SystemView  # Aşama 5
 from jarvis.interface.telemetry_panel import TelemetryPanel
 from jarvis.interface.theme import C, Fonts
 from jarvis.interface.visualizer import ReactorWidget
@@ -50,7 +51,6 @@ NAV_ITEMS = [
 
 # Henüz yapılmamış bölümler: sahte içerik yerine dürüst bir açıklama gösterilir
 COMING = {
-    "sistem": ("Sistem", "Ayrıntılı işlem ve donanım ekranı Aşama 5'te geliyor. Özet bilgiler sağdaki şeritte."),
     "otomasyon": ("Otomasyon", "Rutinler ve zamanlanmış görevler Aşama 6'da geliyor."),
 }
 
@@ -304,6 +304,8 @@ class MainWindow(QMainWindow):
         self.pages["ayarlar"] = self.settings_view
         self.memory_view = MemoryView(assistant)  # Aşama 4
         self.pages["hafiza"] = self.memory_view
+        self.system_view = SystemView(assistant)  # Aşama 5: gerçek Sistem ekranı
+        self.pages["sistem"] = self.system_view
         for key, (title, text) in COMING.items():
             self.pages[key] = ComingSoonPage(title, text)
         for key in ("konusmalar", "hafiza", "sistem", "otomasyon", "ayarlar"):
@@ -332,6 +334,7 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.SETTINGS_CHANGED, self.telemetry.apply_settings)
         bus.subscribe(Topics.CONFIRM_REQUEST, self._on_confirm)
         bus.subscribe(Topics.MEMORY_PENDING, self._on_memory_pending)  # Aşama 4
+        bus.subscribe(Topics.TOOL_CONFIRM, self._on_tool_confirm)  # Aşama 5
 
         if assistant.store.load_warning:
             self.panel.banner.show_message(assistant.store.load_warning, "uyari")
@@ -371,6 +374,28 @@ class MainWindow(QMainWindow):
             if not req.future.done():
                 req.future.set_result(ok)
         self._confirm_box = ask_budget(self, req.question, answer)
+
+    # --- Aşama 5: araç onayı (engellemeyen pencere) ---
+    def _on_tool_confirm(self, req) -> None:  # noqa: ANN001
+        boxes = self.__dict__.setdefault("_tool_boxes", [])
+
+        def answer(ok: bool) -> None:
+            if not req.future.done():
+                req.future.set_result(ok)
+            if box in boxes:
+                boxes.remove(box)
+
+        def close_box(_f) -> None:  # noqa: ANN001  onay süresi dolarsa/iptal edilirse pencere de kapansın
+            try:
+                if box.isVisible():
+                    box.close()
+            except RuntimeError:  # pencere zaten silinmiş
+                pass
+
+        req.future.add_done_callback(close_box)
+        box = ask_tool_confirmation(self, req.prompt, answer)
+        boxes.append(box)
+    # --- Aşama 5 sonu ---
 
     def navigate(self, key: str) -> None:
         self.stack.setCurrentWidget(self.pages[key])
