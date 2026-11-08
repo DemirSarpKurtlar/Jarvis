@@ -265,3 +265,14 @@ def test_local_command_on_unsupported_os(tmp_path, monkeypatch):
     chat.bus.subscribe(Topics.CHAT_DONE, done.append)
     assert asyncio.run(tools.handle_local("bilgisayarı sen kullan: Paint'i aç")) is True
     assert "desteklenmiyor" in done[-1].text
+
+
+def test_core_tool_names_all_exist(tmp_path):
+    """Çekirdek listesindeki her ad gerçekten kayıtlı bir araç olmalı (yazım hatası aramaya düşürür)."""
+    from jarvis.tools.defaults import build_registry
+    from jarvis.tools.registry import CORE_TOOL_NAMES
+    from tests.tool_fakes import make_ctx
+
+    reg = build_registry(make_ctx(tmp_path))
+    missing = sorted(n for n in CORE_TOOL_NAMES if reg.get(n) is None)
+    assert missing == []

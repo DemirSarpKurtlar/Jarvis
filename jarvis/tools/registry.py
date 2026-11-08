@@ -60,8 +60,10 @@ CORE_TOOL_NAMES = frozenset({
     "open_app", "close_app", "switch_to_app", "find_apps", "launch_game", "list_games",
     "set_volume", "change_volume", "get_volume", "set_mute", "open_url", "web_search_in_browser", "open_settings",
     "use_computer",
-    # Medya araçları (başka bir modülde eklenir; adı tutmazsa ToolSpec.core=True verilebilir)
-    "media_control", "media_play_pause", "media_next", "media_previous", "media_key", "play_media",
+    # Birleştirmeden sonra gerçek adlar: sık sesli komutlar hemen yüklü olsun (aramaya tur harcamasın)
+    "media_control", "now_playing", "set_app_volume", "spotify_play", "youtube_play",   # MEDYA
+    "look_at_screen", "arrange_windows", "read_text_aloud",                            # EKRAN
+    "read_clipboard",                                                                   # BELGE
 })
 # --- BILGISAYAR sonu ---
 
