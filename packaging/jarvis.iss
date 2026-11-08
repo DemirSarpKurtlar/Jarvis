@@ -161,8 +161,7 @@ begin
     if UninstallSilent() then
       DeleteUserData := ExpandConstant('{param:DELETEUSERDATA|0}') = '1'
     else
-      DeleteUserData := MsgBox(FmtMessage(CustomMessage('DeleteUserDataQuestion'),
-                                          [ConfigDataDir(), LocalDataDir()]),
+      DeleteUserData := MsgBox(FmtMessage(CustomMessage('DeleteUserDataQuestion'), [ConfigDataDir(), LocalDataDir()]),
                                mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
     Log('Kullanıcı verisi silinsin mi: ' + IntToStr(Ord(DeleteUserData)));
     { Anahtar Credential Manager'da: exe henüz silinmeden JARVIS'e sildir }

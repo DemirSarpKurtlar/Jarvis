@@ -122,3 +122,17 @@ def test_ci_workflow_contract():
         return
     data = yaml.safe_load(wf)
     assert set(data["jobs"]) == {"linux", "windows"}
+
+
+def test_inno_script_has_no_accidental_section_tags():
+    """Inno Setup, [Code] içinde bile satır başındaki '[' ile başlayan her satırı bölüm başlığı sanar."""
+    from pathlib import Path
+    known = {"setup", "languages", "tasks", "files", "icons", "run", "uninstallrun", "uninstalldelete", "code",
+             "registry", "dirs", "custommessages", "messages", "installdelete", "types", "components", "ini"}
+    iss = Path(__file__).resolve().parents[1] / "packaging" / "jarvis.iss"
+    bad = []
+    for i, line in enumerate(iss.read_text(encoding="utf-8-sig").splitlines(), 1):
+        t = line.strip()
+        if t.startswith("[") and t[1:].split("]")[0].lower() not in known:
+            bad.append((i, t))
+    assert bad == []
