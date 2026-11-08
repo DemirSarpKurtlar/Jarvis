@@ -65,6 +65,7 @@ class Assistant:
         self.tool_service = ToolService(store, self.bus, self.state, self.db, tool_context)
         self.tools = self.tool_service.registry      # ToolRegistry (Claude araç kullanımı için)
         self.audit = self.tool_service.audit         # AuditLogger
+        self.chat.tools = self.tool_service          # Aşama 6: Claude araçları kullanabilir
         # --- Aşama 5 sonu ---
 
     @property

@@ -88,6 +88,8 @@ class ToolSettings(_Section):
     read_only: bool = False
     # Onay penceresi bu süre içinde yanıtlanmazsa işlem yapılmaz
     confirm_timeout_s: int = Field(120, ge=10, le=600)
+    # Aşama 6: Claude bu araçları kendi kararıyla çağırabilir (onay gerektirenler yine sorulur)
+    claude_can_use_tools: bool = True
 # --- Aşama 5 sonu ---
 
 

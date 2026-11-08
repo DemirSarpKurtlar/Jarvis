@@ -44,6 +44,12 @@ COMPLEX_TRIGGERS = (
     "çöktü", "kod", "python", "program", "script", "fonksiyon", "algoritma", "hesapla", "özetle",
     "yaz bana", "makale", "mail yaz", "e-posta yaz", "çevir", "matematik", "kanıtla",
 )
+# Bilgisayarda çok adımlı iş isteyen ifadeler: araç planlaması için dengeli model (Sonnet)
+COMPUTER_TRIGGERS = (
+    "klasör", "dosya", "taşı", "düzenle", "topla", "sil", "yedekle", "indirilenler", "masaüst",
+    "belgeler", "işlem", "program", "uygulama", "kapat", "hatırlat", "zamanla", "dakika sonra",
+    "saat sonra", "pdf", "word", "belge oluştur", "not oluştur",
+)
 _YEAR_RE = re.compile(r"\b20[2-9]\d\b")
 
 
@@ -67,6 +73,8 @@ def classify(text: str) -> tuple[Tier, bool, str]:
         return "advanced", _has(t, RESEARCH_TRIGGERS), "güçlü model istendi"
     if _has(t, RESEARCH_TRIGGERS) or _YEAR_RE.search(t):
         return "main", True, "güncel bilgi gerekiyor"
+    if _has(t, COMPUTER_TRIGGERS):
+        return "main", False, "bilgisayarda işlem"
     if _has(t, COMPLEX_TRIGGERS) or len(t) > 280:
         return "main", False, "karmaşık istek"
     return "light", False, "basit istek"

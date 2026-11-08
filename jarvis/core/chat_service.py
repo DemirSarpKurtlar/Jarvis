@@ -14,7 +14,7 @@ from concurrent.futures import Executor
 from dataclasses import dataclass, field
 from enum import Enum
 
-from jarvis.ai.claude_client import ClaudeClient, ClaudeError, ErrorKind
+from jarvis.ai.claude_client import ClaudeClient, ClaudeError, ErrorKind, ToolOutcome
 from jarvis.ai.model_registry import ModelRegistry, spec_for
 from jarvis.ai.prompts import system_blocks
 from jarvis.ai.router import route
@@ -83,6 +83,7 @@ class ChatService:
         self.busy = False
         self._client: ClaudeClient | None = None
         self.memory = None  # Aşama 4: isteğe bağlı MemoryService (Assistant bağlar)
+        self.tools = None   # Aşama 6: isteğe bağlı ToolService (Assistant bağlar); Claude araç kullanır
 
     @property
     def registry(self) -> ModelRegistry:
@@ -217,10 +218,12 @@ class ChatService:
                               + (f", hafızadan {used} kayıt kullanılıyor" if used else ""))
         self.bus.publish(Topics.CHAT_STARTED, ChatStarted(text, spec.display_name, r.reason, web, note))
 
+        client_tools, executor = self._tool_bridge(spec)
         try:
             result = await self._client.chat(  # type: ignore[union-attr]
                 spec, system_blocks(extra=memory_text), messages, web_search=web,
                 on_text=lambda t: self.bus.publish(Topics.CHAT_DELTA, t),
+                client_tools=client_tools, tool_executor=executor,
             )
         except ClaudeError as e:
             if e.is_offline:
@@ -236,6 +239,11 @@ class ChatService:
         served_name = spec_for(result.model_served, r.tier).display_name
         if result.fallback_used:
             note = ((note + " ") if note else "") + f"Yanıtı yedek model ({served_name}) verdi."
+        if result.tool_runs:  # Aşama 6: Claude'un bilgisayarda yaptıkları görünür olsun
+            done_list = "; ".join((t.summary or t.name) + ("" if t.ok else " (yapılamadı)") for t in result.tool_runs)
+            note = ((note + " ") if note else "") + f"Yapılan işlemler: {done_list}"
+        if result.tool_limit_hit:
+            note = ((note + " ") if note else "") + "İşlem adımı sınırına ulaşıldı; görev yarım kalmış olabilir."
 
         if result.refused:
             cat = f" ({result.refusal_category})" if result.refusal_category else ""
@@ -258,6 +266,27 @@ class ChatService:
         await self.publish_usage()
         self.bus.publish(Topics.CHAT_DONE, done)
         return done
+
+    # ---- Aşama 6: Claude araç kullanımı ----
+    def _tool_bridge(self, spec):  # noqa: ANN001, ANN202
+        """Claude'a gidecek araç listesi ve çağrıları güvenlik katmanından geçiren yürütücü."""
+        if self.tools is None or not self.store.settings.tools.claude_can_use_tools:
+            return None, None
+        tools = self.tools.registry.to_claude_tools()
+
+        async def execute(name: str, args: dict) -> ToolOutcome:
+            reg_spec = self.tools.registry.get(name)
+            title = getattr(reg_spec, "title", name)
+            if self.state.can_transition(AssistantState.EXECUTING):
+                self.state.transition(AssistantState.EXECUTING, title)
+            try:
+                res = await self.tools.run(name, args, source="claude")
+            finally:
+                if self.state.state is AssistantState.EXECUTING:
+                    self.state.transition(AssistantState.PROCESSING, f"{spec.display_name} ile düşünüyorum")
+            return ToolOutcome(res.to_claude_content(), is_error=not res.ok, summary=res.summary)
+
+        return tools, execute
 
     # ---- Aşama 4: hafıza ----
     async def _memory_context(self, text: str) -> str | None:
