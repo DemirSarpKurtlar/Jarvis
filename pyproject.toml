@@ -32,6 +32,8 @@ dependencies = [
     "pywin32>=306; sys_platform == 'win32'",
     "comtypes>=1.4; sys_platform == 'win32'",
     "pycaw>=20240316; sys_platform == 'win32'",
+    # MEDYA: "şu an ne çalıyor" ve hedefli oynat/duraklat (Windows medya denetimi, GSMTC); yoksa medya tuşlarına düşülür
+    "winrt-Windows.Media.Control>=3.0; sys_platform == 'win32'",
 ]
 
 [project.optional-dependencies]

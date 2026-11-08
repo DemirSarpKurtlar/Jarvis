@@ -90,6 +90,9 @@ OPTIONAL = [
     ("win32com", False, False, False, "pywin32"),
     ("comtypes", False, False, True, "comtypes"),
     ("pycaw", False, False, True, "pycaw"),
+    # --- MEDYA --- (projeksiyon tablolarını winrt'nin kendi PyInstaller kancası toplar)
+    ("winrt", False, False, False, "winrt-runtime"),
+    # --- MEDYA sonu ---
     ("send2trash", False, False, True, "Send2Trash"),
     ("pypdf", False, False, False, "pypdf"),
     ("docx", True, False, False, "python-docx"),

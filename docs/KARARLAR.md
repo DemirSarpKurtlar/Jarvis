@@ -119,3 +119,17 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 Üstteki taslak çubuğundan 7 ses durumu ve silme onayı penceresi denenebilir.
 Son uygulama PySide6 ile yazılacak. Görselleştirici QPainter ile aynı şekilde çizilecek,
 fontlar (Saira ve IBM Plex Sans, OFL lisanslı) uygulamayla birlikte paketlenecek.
+
+## 2026-11-08 — Medya ve ses araçları
+
+| Konu | Karar |
+|---|---|
+| Araçlar | `media_control` (oynat/duraklat/sonraki/önceki/durdur), `now_playing`, `spotify_play`, `youtube_play`, `list_audio`, `set_audio_output`, `set_app_volume`, `discord_voice`. Kod: `jarvis/tools/media.py` (mantık), `media_win.py` (Windows arka uçları), `media_intents.py` (yerel komutlar). |
+| Medya kontrolü | Önce Windows'un GSMTC arayüzü (`winrt-Windows.Media.Control`, yalnızca Windows): oturuma hedefli komut, sonra durum yeniden okunarak doğrulanır. "Duraklat" zaten duraklatılmışsa hiçbir şey yapmaz (aç/kapa tuşu sorunu yok). GSMTC reddederse ya da paket yoksa `SendInput` ile medya tuşu basılır; doğrulanamayan sonuç "doğrulayamadım" diye söylenir. |
+| Spotify | Ücretli/anahtarlı Web API kullanılmaz. `spotify:search:<sorgu>` açılır (uygulama yoksa open.spotify.com araması). Çalmayı JARVIS başlatamaz ve bunu açıkça söyler; arama sonucuna tuş göndermek güvenilir değil. |
+| YouTube | `httpx2` (anthropic'in bağımlılığı, ek paket yok) ile arama sayfası indirilir (en çok 4 MB, yalnızca youtube.com, `SOCS` onay çerezi). `ytInitialData` içinden ilk normal video (reklam/kısa değil) seçilir, kimlik `[A-Za-z0-9_-]{11}` ile doğrulanır. Bulunamazsa arama sonuçları açılır. Başlık/kanal güvenilmeyen veri olarak işaretlenir. |
+| Ses çıkışı | Core Audio ile etkin çıkışlar listelenir. Varsayılan aygıt belgelenmemiş `IPolicyConfig` (Windows'un ses panelinin kullandığı arayüz) ile üç rol için değiştirilir ve yeniden okunarak doğrulanır. "kulaklık/hoparlör/monitör" sözcükleri İngilizce/Türkçe aygıt adlarıyla eşleşir; eller-serbest (mikrofonlu) uç bir puan geride kalır; eşitlikte kullanıcıya sorulur. |
+| Uygulama sesi | Varsayılan aygıttaki oturumlar (`ISimpleAudioVolume`). Aynı uygulamanın tüm oturumları (Chrome'un birden çok işlemi) birlikte değişir, sonra yeniden okunur. Sayısız "kıs/artır" ±20 puandır. |
+| Discord | Discord çalışmıyorsa reddedilir. Varsayılan kısayollar Ctrl+Shift+M (mikrofon) / Ctrl+Shift+D (sağırlaştır) `SendInput` ile genel olarak gönderilir. Oyundan çıkarmamak için Discord öne alınmaz; öndeki uygulama da tuşu görür. Aç/kapa olduğu ve Discord'un durumu okunamadığı için sonuç "doğrulanamadı" denir. İzin seviyesi SAFE (düşük risk); her çağrı denetim kaydına yazılır. |
+| Yerel komutlar | Medya kuralları genel kurallardan önce çalışır ("şarkıyı geç" pencereye geçme değildir). Tek başına "devam" ve servis belirtilmeyen "Tarkan çal" Claude'a bırakılır. |
+| Gerçek Windows'ta doğrulanacaklar | GSMTC (winrt) çağrıları, `IPolicyConfig` ile aygıt değiştirme, oturum sesi, `SendInput` ve Discord'un kısayolu yakalaması. Okuma testleri: `tests/test_media_windows_real.py` (`pytest -m windows`). |

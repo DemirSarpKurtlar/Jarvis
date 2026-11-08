@@ -16,6 +16,10 @@ from jarvis.security.permission_manager import PermissionManager
 from jarvis.tools import applications, files, hardware, processes, scheduler, system_info, windows_actions
 from jarvis.tools.registry import ToolContext, ToolRegistry
 
+# --- MEDYA ---
+from jarvis.tools import media  # noqa: E402
+# --- MEDYA sonu ---
+
 
 def default_context(sandbox, snapshot: Callable = lambda: None) -> ToolContext:  # noqa: ANN001
     """Gerçek arka uçlarla bağlam (Windows dışında pencere/ses arka uçları "desteklenmiyor" der)."""
@@ -36,6 +40,9 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     files.register(reg, ctx, **({"trash": trash} if trash else {}))
     windows_actions.register(reg, ctx, **(action_backends or {}))
     scheduler.register(reg, ctx)
+    # --- MEDYA ---
+    media.register(reg, ctx)
+    # --- MEDYA sonu ---
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
     return reg
