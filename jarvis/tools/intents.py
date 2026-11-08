@@ -276,7 +276,7 @@ def _rutin(cleaned: str, f: str) -> Intent | None:
     if _BRIEFING.fullmatch(g):
         return Intent("morning_briefing", {}, "Sabah brifingi")
     m = _CITY.fullmatch(g)
-    if m:
+    if m and not re.search(r"\b(?:neresi|nere|ne|nedir|hangisi|hangi|mi|mu)\b", m.group(1)):
         # Şehir adını özgün yazımıyla al (Türkçe harfler): katlanmış eşleşmedeki kelime sayısı kadar
         n = len(m.group(1).split())
         words = [w for w in cleaned.split() if fold(w) not in ("jarvis", "lutfen")]

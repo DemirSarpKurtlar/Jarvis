@@ -165,6 +165,7 @@ def test_tool_and_intents(tmp_path):
     hit = intents.parse("Jarvis, brifing için şehrim Kahramanmaraş olsun")
     assert hit.args == {"city": "Kahramanmaraş"}
     assert intents.parse("günaydın, bugün hava nasıl olacak") is None   # karmaşık: Claude'a
+    assert intents.parse("şehrim neresi") is None                         # soru: Claude'a
 
 
 def test_set_city(tmp_path):
