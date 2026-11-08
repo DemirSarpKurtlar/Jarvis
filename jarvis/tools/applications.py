@@ -34,7 +34,7 @@ from jarvis.tools import schema as js
 from jarvis.tools.processes import protection_reason, terminate
 from jarvis.tools.registry import (NotSupportedError, ToolContext, ToolError, ToolOutput, ToolRegistry, ToolSpec,
                                    WINDOWS_ONLY)
-from jarvis.tools.text import fold, suffix_variants
+from jarvis.tools.text import consonant_skeleton, fold, phonetic_key, suffix_variants
 
 log = logging.getLogger(__name__)
 
@@ -131,6 +131,32 @@ def _key_score(q: str, k: str) -> float:
     return SequenceMatcher(None, q, k).ratio() * 0.9
 
 
+PHONETIC_EXACT = 0.92      # "Rokıt Lig" ile "Rocket League" aynı okunuş anahtarı
+PHONETIC_SKELETON = 0.86   # ünsüz iskeleti aynı, okunuş anahtarı yakın ("diskort" / "Discord")
+
+
+def phonetic_score(q: str, k: str) -> float:
+    """Türkçe okunuşa göre benzerlik (katlanmış iki ad için). Konuşma tanımanın yabancı adları
+    duyduğu gibi yazmasına karşı: "rokit lig" -> Rocket League, "diskort" -> Discord, "kroom" -> Chrome.
+
+    Yanlış eşleşmeye karşı: kelime sayısı aynı olmalı; ünsüz iskeleti en az 3 harf olmalı ve
+    okunuşlar da yeterince benzemeli. Kısa sorgularda (< 4 harf) yalnızca birebir okunuş sayılır.
+    """
+    pq, pk = phonetic_key(q), phonetic_key(k)
+    if not pq or not pk:
+        return 0.0
+    if pq == pk:
+        return PHONETIC_EXACT
+    best = _key_score(pq, pk) * 0.95 if len(pq.replace(" ", "")) >= 4 else 0.0
+    if len(pq.split()) == len(pk.split()):
+        sq, sk = consonant_skeleton(pq), consonant_skeleton(pk)
+        if sq == sk and len(sq) >= 3:
+            ratio = SequenceMatcher(None, pq, pk).ratio()
+            if ratio >= (0.6 if len(sq) >= 4 else 0.7):
+                best = max(best, PHONETIC_SKELETON)
+    return best
+
+
 def match_score(query: str, entry: AppEntry) -> float:
     best = 0.0
     keys = [fold(entry.name), *(fold(k) for k in entry.keywords)]
@@ -138,6 +164,8 @@ def match_score(query: str, entry: AppEntry) -> float:
         q = fold(cand)
         for k in keys:
             s = _key_score(q, k)
+            if s < PHONETIC_EXACT:
+                s = max(s, phonetic_score(q, k))
             if s > best:
                 best = s
     return best
@@ -168,6 +196,18 @@ class AppIndex:
         with self._lock:
             self._cache = None
 
+    def snapshot(self) -> list[AppEntry]:
+        """Elde olan kayıtlar; keşif BAŞLATMAZ (engellemez). Dizin henüz hazır değilse boş liste."""
+        if self._static is not None:
+            return list(self._static)
+        cache = self._cache
+        return list(cache) if cache is not None else []
+
+    def vocabulary(self, limit: int = 80) -> list[str]:
+        """Konuşma tanıma ipucu için adlar: önce oyunlar (Steam, Başlat menüsü), sonra kullanıcının
+        kurduğu uygulamalar. Sistem araçları, kaldırıcılar ve uzun adlar atlanır. Engellemez."""
+        return vocabulary_names(self.snapshot(), limit)
+
     def find(self, query: str, limit: int = 5, kind: str | None = None, min_score: float = 0.55,
              launchable_only: bool = False) -> list[tuple[AppEntry, float]]:
         queries = [query]
@@ -176,6 +216,13 @@ class AppIndex:
             queries += list(ALIASES.get(fold(cand), ()))
         if f in ALIASES:
             queries += list(ALIASES[f])
+        n_exact = len(queries)
+        if n_exact == 1:
+            # Takma adın okunuşu ("kroom" ~ "krom" -> Google Chrome): puanı okunuş eşleşmesini geçmez
+            for cand in suffix_variants(query):
+                for alias, targets in ALIASES.items():
+                    if phonetic_score(fold(cand), alias) >= PHONETIC_SKELETON:
+                        queries += [t for t in targets if t not in queries]
         scored: dict[tuple[str, str], tuple[AppEntry, float]] = {}
         for e in self.entries():
             if kind and e.kind != kind:
@@ -185,7 +232,8 @@ class AppIndex:
             s = 0.0
             for i, q in enumerate(queries):
                 # Takma adın sonraki tercihleri biraz daha düşük puan alır
-                s = max(s, match_score(q, e) - (0.01 * i if i else 0))
+                qs = match_score(q, e) - (0.01 * i if i else 0)
+                s = max(s, qs if i < n_exact else min(qs, PHONETIC_SKELETON))
             if s >= min_score:
                 key = (fold(e.name), e.kind)
                 prev = scored.get(key)
@@ -196,10 +244,54 @@ class AppIndex:
         return out[:limit]
 
     def best(self, query: str, kind: str | None = None, threshold: float = 0.78) -> AppEntry | None:
-        found = self.find(query, limit=2, kind=kind, launchable_only=True)
+        found = self.find(query, limit=3, kind=kind, launchable_only=True)
         if not found or found[0][1] < threshold:
             return None
-        return found[0][0]
+        top, score = found[0]
+        # Bulanık/okunuş eşleşmesinde farklı adlı iki aday başa baş ise tahmin etme (çağıran seçenekleri
+        # sorar). Aynı adın oyun ve uygulama kaydı (Steam + Başlat menüsü kısayolu) rakip sayılmaz.
+        rival = next((s for e, s in found[1:] if fold(e.name) != fold(top.name)), 0.0)
+        if score < PHONETIC_EXACT + 0.01 and rival >= score - 0.02:
+            return None
+        return top
+
+
+# ---------- konuşma tanıma ipucu ----------
+# Konuşmada pek söylenmeyen Windows bileşenleri ve yardımcı araçlar: ipucunu doldurmasın
+_VOCAB_NOISE = re.compile(
+    r"(?i)([()\[\]]|\bx64\b|\bx86\b|64-bit|32-bit|redistributable|runtime|driver|sürücü|update|güncelle|"
+    r"helper|service|hizmet|diagnostic|tanılama|recovery|kurtarma|odbc|iscsi|administrative|yönetim araçları|"
+    r"component services|debug|\bsdk\b|toolkit|\.net\b|visual c\+\+|powershell ise|command line|"
+    r"crash ?report|prerequisites|^windows (?!media)|^microsoft (?!edge|teams|word|excel|powerpoint|outlook|"
+    r"onenote|store))")
+_VOCAB_SOURCES = {"steam": 0, "start_menu": 1, "apps_folder": 1, "builtin": 3}   # App Paths: exe adları
+
+
+def vocabulary_names(entries: list[AppEntry], limit: int = 80) -> list[str]:
+    """Tekrarsız, öncelik sırasıyla ad listesi: oyunlar > Başlat menüsü/AppsFolder > yerleşik.
+    Aynı öncelikte kısa adlar önce (konuşmada söylenen ve ipucu bütçesine sığan adlar)."""
+    ranked: list[tuple[int, int, str]] = []
+    for e in entries:
+        rank = _VOCAB_SOURCES.get(e.source)
+        if rank is None or not e.launchable:
+            continue    # "uninstall" kayıtları çoğunlukla bileşen; başlatılamaz
+        name = e.name.strip()
+        if not name or len(name) > 40 or len(name.split()) > 5 or _VOCAB_NOISE.search(name) or _JUNK.search(name):
+            continue
+        if e.kind == "game":
+            rank = 0
+        ranked.append((rank, len(name), name))
+    out: list[str] = []
+    seen: set[str] = set()
+    for _rank, _len, name in sorted(ranked, key=lambda x: (x[0], x[1], x[2].lower())):
+        key = fold(name)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+        if len(out) >= limit:
+            break
+    return out
 
 
 # ---------- Steam ----------

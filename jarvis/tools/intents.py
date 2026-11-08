@@ -132,8 +132,42 @@ def _search_args(folder: str, query: str) -> dict | None:
     return {"folder": folder, "pattern": pattern, "extension": ext, "max_results": 25, "max_depth": 5}
 
 
+# Konuşma tanıma sayıları çoğu zaman yazıyla verir: "sesi yüzde elli yap", "sesi otuza çek"
+_UNITS = {"sifir": 0, "bir": 1, "iki": 2, "uc": 3, "dort": 4, "dord": 4, "bes": 5, "alti": 6, "yedi": 7,
+          "sekiz": 8, "dokuz": 9}
+_TENS = {"on": 10, "yirmi": 20, "otuz": 30, "kirk": 40, "elli": 50, "altmis": 60, "yetmis": 70, "seksen": 80,
+         "doksan": 90, "yuz": 100}
+_NUM_WORD = re.compile(r"^(" + "|".join(sorted({*_UNITS, *_TENS}, key=len, reverse=True)) + r")('?(?:ye|ya|e|a))?$")
+
+
+def _number_words(f: str) -> str:
+    """Katlanmış metindeki yazıyla sayıları rakama çevirir: "yuzde yetmis bes" -> "yuzde 75", "elliye" -> "50ye"."""
+    out: list[str] = []
+    words = f.split()
+    i = 0
+    while i < len(words):
+        m = _NUM_WORD.match(words[i])
+        if not m:
+            out.append(words[i])
+            i += 1
+            continue
+        word, suffix = m.group(1), m.group(2) or ""
+        value = _TENS.get(word, _UNITS.get(word, 0))
+        if word in _TENS and word != "yuz" and not suffix and i + 1 < len(words):
+            n = _NUM_WORD.match(words[i + 1])
+            if n and n.group(1) in _UNITS and n.group(1) != "sifir":
+                value += _UNITS[n.group(1)]
+                suffix = n.group(2) or ""
+                i += 1
+        out.append(f"{value}{suffix}")
+        i += 1
+    return " ".join(out)
+
+
 def _volume(f: str) -> Intent | None:
     vol = r"(?:sesi|ses|ses seviyesini|ses seviyesi|ses duzeyini|sistem sesini|sesin seviyesini)"
+    if re.match(vol + r"\s", f):
+        f = _number_words(f)
     m = re.fullmatch(vol + r"\s+(?:yuzde\s*)?(\d{1,3})\s*(?:'?(?:e|a|ye|ya|'e|'a))?\s*"
                      r"(?:yap|ayarla|getir|olsun|olarak ayarla|cek|dusur|yukselt|al)?", f)
     if m:
@@ -179,18 +213,20 @@ def _system_query(f: str) -> Intent | None:
         return Intent("gpu_status", {}, "Ekran kartı")
     if re.search(r"\b(islemci|cpu)\w*", f):
         return Intent("cpu_status", {}, "İşlemci")
-    if re.search(r"\b(ram|bellek)\w*", f) and not re.search(r"\b(temizle|bosalt)", f):
+    # "ram"/"disk"/"pil" yalnızca kendi ekleriyle: "Diskordu aç", "Pillars'ı aç", "Rampage" uygulama adıdır
+    if re.search(r"\b(?:ram(?:im|in|i|de|da|e)?\b|bellek\w*)", f) and not re.search(r"\b(temizle|bosalt)", f):
         return Intent("memory_status", {}, "Bellek")
     if re.search(r"\b(performans\w*|sistem durumu|bilgisayarin durumu|sistem nasil|bilgisayar nasil|"
                  r"bilgisayar yavas\w*)", f):
         return Intent("performance_report", {}, "Performans")
-    if re.search(r"\b(disk\w*|bos alan\w*|ne kadar yer|depolama alani)", f) and not re.search(r"temizle", f):
+    if re.search(r"\b(?:disk(?:ler\w*|im\w*|in\w*|te\w*|de\w*|i|e)?\b|bos alan\w*|ne kadar yer|depolama alani)", f) \
+            and not re.search(r"temizle", f):
         return Intent("disk_info", {}, "Diskler")
     if re.search(r"(ne zamandir acik|calisma suresi|acik kalma suresi|uptime|ne zaman acildi|kac saattir acik)", f):
         return Intent("system_overview", {}, "Sistem özeti")
     if re.search(r"\b(ip adres\w*|ip m\b|ipim|ag bilgi\w*|internet baglanti\w*|ag baglanti\w*|internet hiz\w*)", f):
         return Intent("network_info", {}, "Ağ")
-    if re.search(r"\b(pil|sarj|batarya)\w*", f):
+    if re.search(r"\b(?:pil(?:im|in|i|de|e)?\b|sarj\w*|batarya\w*)", f):
         return Intent("battery_status", {}, "Pil")
     if re.search(r"(sistem hatalari|son hatalar|olay gunlugu|sistem olaylari)", f):
         return Intent("recent_system_events", {"hours": 24, "limit": 10}, "Sistem olayları")

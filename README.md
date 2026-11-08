@@ -48,6 +48,9 @@ demeden devam edebilirsin. JARVIS konuşurken araya girersen susar ve seni dinle
 * Hoparlörden çıkan ses mikrofona geri dönebilir; JARVIS bunu ayırt etmeye çalışır ama en iyi sonuç kulaklıkla alınır.
 * Kendi "Jarvis" uyandırma modelini eğitmek için: `docs/UYANDIRMA-KELIMESI.md`.
 * `JARVIS_VOICE=off` ortam değişkeni ses motorunu tamamen kapatır.
+* Konuşma tanımaya Türkçe komut örnekleri ve bu bilgisayarda kurulu oyun/uygulama adları (Steam, Başlat menüsü)
+  ipucu olarak verilir; "Rocket League", "Discord" gibi adlar daha doğru yazılır. Yanlış duyulan adlar Türkçe
+  okunuşa göre de eşleştirilir ("Rokit Lig'i aç" -> Rocket League). `JARVIS_STT_PROMPT=off` ipucunu kapatır.
 
 ## Claude API anahtarı
 

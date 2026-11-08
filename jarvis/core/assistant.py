@@ -73,11 +73,17 @@ class Assistant:
         # Aşama 3: ses motoru (kendi thread'leri var; ortak executor'ı meşgul etmez).
         # Tanınan metin yazılı metinle aynı yoldan gider: önce yerel komutlar, sonra Claude.
         self.voice = VoiceManager(store, self.bus, self.state, self.chat, voice_loader,
-                                  send=self._handle_text)
+                                  send=self._handle_text, vocabulary=self._voice_vocabulary)
 
     @property
     def settings(self) -> Settings:
         return self.store.settings
+
+    def _voice_vocabulary(self) -> list[str]:
+        """Konuşma tanıma ipucu: kurulu oyun/uygulama adları. Ses thread'inden çağrılır; dizini
+        taramaz, `warm_up`ın hazırladığı önbelleği okur (hazır değilse boş liste)."""
+        apps = getattr(self.tool_service.ctx, "apps", None)
+        return list(apps.vocabulary()) if hasattr(apps, "vocabulary") else []
 
     async def start(self) -> None:
         self._loop = asyncio.get_running_loop()
