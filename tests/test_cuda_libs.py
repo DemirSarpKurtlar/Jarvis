@@ -20,6 +20,7 @@ import pytest
 
 from jarvis.config.settings import SettingsStore
 from jarvis.voice import cuda_libs, stt as stt_mod
+from jarvis.voice.gpu_probe import ProbeResult
 from jarvis.voice.components import (CUDA_GENERIC_NOTE, CUDA_MISSING_NOTE, CUDA_STILL_FAILING_NOTE,
                                      RealComponentLoader)
 from jarvis.voice.cuda_libs import (CUBLAS, CudaLibCancelled, CudaLibError, CudaLibInstaller, CudaPackage,
@@ -462,6 +463,8 @@ def _load_stt(tmp_path, monkeypatch, gpu_error: str | None, installed: bool = Fa
     settings = SettingsStore(tmp_path / "s.json").load().voice
     settings.stt_device = device
     loader = RealComponentLoader(ModelManager(tmp_path), gpu_probe=lambda: gpu_name)
+    # Ayrı süreçteki ekran kartı denemesi geçti sayılır; GPU hatası süreç içi yüklemede (FakeWhisper) taklit edilir
+    loader.gpu_check = lambda model_dir, **kw: ProbeResult(True)
     notes: list[str] = []
     stt, label, report = loader._load_stt(settings, ModelManager(tmp_path), lambda p: None, threading.Event(), notes)
     return stt, label, report, notes, calls

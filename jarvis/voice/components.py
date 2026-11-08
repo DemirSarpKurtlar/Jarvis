@@ -22,9 +22,11 @@ from typing import Any, Protocol
 from jarvis.config.settings import VoiceSettings
 from jarvis.core.errors import JarvisError
 from jarvis.voice import cuda_libs
+from jarvis.voice import gpu_probe as gpu_probe_mod
 from jarvis.voice.audio_io import (AudioPlayer, AudioUnavailable, MicrophoneStream, OutputHistory, find_device,
                                    list_devices, load_backend)
-from jarvis.voice.models import WAKE_FILES, ModelError, ModelManager, OWW_EMBEDDING, OWW_HEY_JARVIS, OWW_MELSPEC, ProgressFn
+from jarvis.voice.models import (WAKE_FILES, DownloadProgress, ModelError, ModelManager, OWW_EMBEDDING,
+                                 OWW_HEY_JARVIS, OWW_MELSPEC, ProgressFn)
 from jarvis.voice.cuda_libs import GpuReport
 from jarvis.voice.stt import SpeechToText, STTError, WhisperSTT, choose
 from jarvis.voice.tts import PiperTTS, TextToSpeech
@@ -32,6 +34,20 @@ from jarvis.voice.vad import EnergyVad, SileroVad, VadModel
 from jarvis.voice.wake_word import OnnxWakeWordModel, WakeWordDetector, hey_threshold_from_sensitivity
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class GpuCheckProgress(DownloadProgress):
+    """Ekran kartı denemesi sürerken (geçen saniye `done`). İndirme değil; metni farklı."""
+
+    label: str = "ekran kartı"
+    done: int = 0
+    total: int | None = None
+
+    def text(self) -> str:
+        m, s = divmod(max(0, self.done), 60)
+        return (f"Ekran kartı deneniyor ({m}:{s:02d}). Yeni kartlarda ilk seferde birkaç dakika sürebilir; "
+                "en fazla 4 dakika beklenir, olmazsa işlemciye geçilir.")
 
 
 class VoiceDisabled(JarvisError):
@@ -96,6 +112,9 @@ class RealComponentLoader:
         self.backend_loader = backend_loader
         self.gpu_probe = gpu_probe        # NVIDIA kartın adı ("" = yok); testler sahtesini verir
         self.cuda_root = cuda_root        # indirilen cuBLAS klasörü (None = veri klasörü/cuda)
+        # Ekran kartını ayrı süreçte, zaman aşımıyla dener (takılan/çöken CUDA ses motorunu kilitlemesin)
+        self.gpu_check: Callable[..., gpu_probe_mod.ProbeResult] = gpu_probe_mod.run_probe
+        self.gpu_cancel: threading.Event | None = None   # "İptal" düğmesi (ses motoru verir)
 
     def load(self, settings: VoiceSettings, progress: ProgressFn, cancel: threading.Event,
              gain: Callable[[], float]) -> VoiceComponents:
@@ -154,6 +173,25 @@ class RealComponentLoader:
         mic_factory = lambda: MicrophoneStream(backend, in_dev)  # noqa: E731
         return VoiceComponents(vad, mic_factory, player, wake, stt, tts, notes, label, gpu)
 
+    def _check_gpu(self, model_dir: Path, progress: ProgressFn, cancel: threading.Event) -> None:
+        """Ekran kartını önce ayrı süreçte dener; başarısızsa STTError (çağıran işlemciye döner)."""
+        if gpu_probe_mod.known_good(model_dir, self.cuda_root):
+            return
+        log.info("Ekran kartı ayrı süreçte deneniyor (%s)", model_dir.name)
+
+        def tick(elapsed: float) -> None:
+            progress(GpuCheckProgress(done=int(elapsed)))
+
+        res = self.gpu_check(model_dir, cancel=gpu_probe_mod.ProbeCancel(cancel, self.gpu_cancel), on_tick=tick)
+        if res.ok:
+            log.info("Ekran kartı denemesi başarılı (%.1f sn)", res.seconds)
+            gpu_probe_mod.remember_good(model_dir, self.cuda_root)
+            return
+        self._check_cancel(cancel)   # ses motoru kapatılıyorsa iptal olarak bitir
+        log.warning("Ekran kartı denemesi başarısız (%.1f sn): %s", res.seconds, res.detail)
+        why = "iptal edildi" if res.cancelled else res.detail
+        raise STTError(f"GPU denemesi: {why}", user_message=f"Ekran kartı denemesi başarısız: {why}")
+
     @staticmethod
     def _check_cancel(cancel: threading.Event) -> None:
         if cancel.is_set():
@@ -163,6 +201,7 @@ class RealComponentLoader:
                   cancel: threading.Event, notes: list[str]) -> tuple[SpeechToText | None, str, GpuReport]:
         # Windows: JARVIS'in indirdiği cuBLAS varsa DLL arama yoluna ekle (yoksa hiçbir şey yapmaz)
         libs = cuda_libs.is_installed(self.cuda_root)
+        gpu_probe_mod.tune_cuda_cache()   # CUDA başlamadan önce: derlenen çekirdekler önbelleğe sığsın
         cuda_libs.activate(self.cuda_root)
         try:
             gpu_name = self.gpu_probe()
@@ -180,7 +219,10 @@ class RealComponentLoader:
                 err = cuda_libs.preload(self.cuda_root)
                 if err:
                     log.warning("Ekran kartı kütüphaneleri önceden yüklenemedi: %s", err)
-            stt = WhisperSTT(manager.ensure_whisper(choice.model, progress, cancel), choice)
+            model_dir = manager.ensure_whisper(choice.model, progress, cancel)
+            if choice.device == "cuda":
+                self._check_gpu(model_dir, progress, cancel)
+            stt = WhisperSTT(model_dir, choice)
             stt.load()
             return stt, stt.label, dataclasses.replace(report, on_gpu=choice.device == "cuda")
         except (ModelError, STTError) as e:

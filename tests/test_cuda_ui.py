@@ -274,3 +274,39 @@ def test_shutdown_cancels_running_download(qapp, loop):
 
     loop.run_until_complete(go())
     assert inst.cancel is not None and inst.cancel.is_set()
+
+
+def test_restart_shows_live_progress_instead_of_static_text(qapp, loop):
+    """Kullanıcı ekran görüntüsü: indirmeden sonra panel 'yeniden başlatılıyor…' yazısında asılı kaldı.
+    Yeniden başlatma sırasındaki model indirmesi / ekran kartı denemesi artık panelde canlı görünür."""
+    from jarvis.voice.components import GpuCheckProgress
+    from jarvis.voice.models import DownloadProgress
+
+    backend = FakeBackend()
+
+    class SlowLoader(SeqLoader):
+        def load(self, settings, progress, cancel, gain):  # noqa: ANN001, ANN201
+            if self.calls >= 1:   # indirme sonrası yeniden başlatma
+                progress(DownloadProgress("konuşma tanıma (large-v3-turbo)", 800 * 2**20, 1600 * 2**20))
+                progress(GpuCheckProgress(done=65))
+                time.sleep(0.2)
+            return super().load(settings, progress, cancel, gain)
+
+    loader = SlowLoader(comps(backend, MISSING, "small (CPU, int8)", [CUDA_MISSING_NOTE]),
+                        comps(backend, ON_GPU, "large-v3-turbo (GPU, float16)"))
+    a, w = make(loader, FakeInstaller())
+    panel = w.settings_view.voice_panel
+    seen: list[str] = []
+    a.bus.subscribe(Topics.VOICE_GPU, lambda p: seen.append(panel.gpu_result.text()))
+
+    async def go():
+        await a.start()
+        await until(lambda: a.voice.ready)
+        w.start_gpu_download()
+        await until(lambda: a.voice.gpu_progress is not None and a.voice.gpu_progress.finished)
+        await a.shutdown()
+
+    loop.run_until_complete(go())
+    assert any("%50" in t and "large-v3-turbo" in t for t in seen), seen
+    assert any("Ekran kartı deneniyor (1:05)" in t for t in seen), seen
+    assert a.voice.gpu_progress.ok

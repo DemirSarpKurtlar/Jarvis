@@ -115,6 +115,15 @@ def _log_credential_backend() -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    raw = sys.argv[1:] if argv is None else argv
+    if raw[:1] == ["--gpu-probe"]:
+        # Paketlenmiş uygulamada ekran kartı denemesi alt süreci (pencere, Qt, kilit yok)
+        from jarvis.voice.gpu_probe import probe_main
+
+        return probe_main(raw[1:])
+    from jarvis.voice.gpu_probe import tune_cuda_cache
+
+    tune_cuda_cache()   # CUDA hiç başlamadan: yeni kartlarda derlenen çekirdekler her açılışta yeniden derlenmesin
     args = parse_args(argv)
     t0 = time.perf_counter()
 

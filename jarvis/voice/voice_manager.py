@@ -495,7 +495,18 @@ class VoiceManager:
                 result = CudaProgress("download", error="İndirme iptal edildi.")
                 return finish(result)
             publish(CudaProgress("restart"))
-            await self.restart()
+            # Yeniden başlatma sırasında model indirmesi / ekran kartı denemesi ilerlemesini panelde de göster
+            # (önceden yalnızca sabit "yeniden başlatılıyor…" yazıyordu; 1,6 GB indirme takılma gibi görünüyordu).
+            unsub = self.bus.subscribe(Topics.VOICE_DOWNLOAD, lambda d: d.finished or d.error or publish(
+                CudaProgress("restart", d.done, d.total, message=d.text())))
+            if hasattr(self.loader, "gpu_cancel"):
+                self.loader.gpu_cancel = self._gpu_cancel
+            try:
+                await self.restart()
+            finally:
+                unsub()
+                if hasattr(self.loader, "gpu_cancel"):
+                    self.loader.gpu_cancel = None
             comps = self.components
             gpu = comps.gpu if comps is not None else None
             if gpu is not None and gpu.on_gpu:

@@ -395,7 +395,7 @@ class VoicePanel(QWidget):
     def _on_gpu_progress(self, p) -> None:  # noqa: ANN001
         done = p.finished or p.error is not None
         self.gpu_bar.setVisible(not done)
-        self.gpu_cancel.setVisible(not done and p.phase == "download")
+        self.gpu_cancel.setVisible(not done and p.phase in ("download", "restart"))
         if not done:
             self.gpu_btn.hide()
             frac = p.fraction

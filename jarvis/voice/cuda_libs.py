@@ -197,7 +197,8 @@ class CudaProgress:
         if self.phase == "extract":
             return "Kütüphaneler çıkarılıyor…"
         if self.phase == "restart":
-            return "Ses motoru ekran kartıyla yeniden başlatılıyor (ilk açılış bir-iki dakika sürebilir)…"
+            # message: yeniden başlatma sırasındaki ayrıntı (model indirmesi, ekran kartı denemesi)
+            return self.message or "Ses motoru ekran kartıyla yeniden başlatılıyor…"
         return "Ekran kartı kütüphaneleri hazırlanıyor…"
 
 

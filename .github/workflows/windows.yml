@@ -166,6 +166,18 @@ jobs:
             --expect "Anahtar deposu: Windows Credential Manager (güvenli)" `
             -- "$env:GITHUB_WORKSPACE\dist\JARVIS\JARVIS.exe" --smoke-test $env:SMOKE_SECONDS
 
+      - name: Ekran kartı denemesi alt süreci (paketlenmiş exe, GPU'suz makine)
+        env:
+          JARVIS_HOME: ${{ runner.temp }}\probe-dist
+        run: |
+          $out = "$env:RUNNER_TEMP\gpu-deneme.json"
+          $p = Start-Process -FilePath "$env:GITHUB_WORKSPACE\dist\JARVIS\JARVIS.exe" `
+            -ArgumentList '--gpu-probe', "$env:RUNNER_TEMP\olmayan-model", $out -Wait -PassThru
+          Get-Content $out
+          $r = Get-Content $out -Raw | ConvertFrom-Json
+          # GPU yok ve model yok: dürüst bir hata yazmalı, pencere açmamalı, takılmamalı
+          if ($r.ok -ne $false -or -not $r.error -or $p.ExitCode -ne 1) { throw "beklenmeyen deneme sonucu (çıkış $($p.ExitCode))" }
+
       - name: Tek örnek testi (paketlenmiş exe)
         env:
           JARVIS_HOME: ${{ runner.temp }}\instance-dist
