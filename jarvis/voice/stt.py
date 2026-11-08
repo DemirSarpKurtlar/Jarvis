@@ -45,7 +45,7 @@ HALLUCINATIONS = (
 # Tek başına "Altyazı", "Altyazı M.K.", "Altyazılar: ..." ya da yalnızca "Abone ol."
 _HALLUCINATION_RE = re.compile(r"^\W*(?:alt\s?yaz[ıi](?:lar)?\s*(?:m\.?\s*k\b|by\b|:|\W*$)|abone\s+ol\W*$)",
                                re.IGNORECASE)
-WAKE_PREFIX = re.compile(r"^\s*(hey|hi|hay|hei|hej)?[\s,]*(jarvis|cervis|çervis|carvis|jarvıs)[\s,.!?:]*",
+WAKE_PREFIX = re.compile(r"^\s*(hey|hi|hay|hei|hej)?[\s,]*(jarvis|jarvıs|cervis|çervis|carvis|carvıs|çarvis|javis|carviz|jervis|garvis|car\s?vis|jar\s?vis)[\s,.!?:]*",
                          re.IGNORECASE)
 
 
@@ -205,6 +205,20 @@ class WhisperSTT:
         if segs and _looks_silent(segs):
             text = ""   # Whisper: büyük olasılıkla konuşma yok
         return Transcript(text, info.language, len(f) / 16000, time.perf_counter() - t0, nsp, alp)
+
+    def transcribe_plain(self, audio: np.ndarray) -> Transcript:
+        """İpucusuz çözümleme (uyandırma doğrulaması): ipucundaki "Jarvis" sessizlikte uydurulmasın."""
+        if self._model is None:
+            raise STTError("model yüklenmedi", user_message="Konuşma tanıma henüz hazır değil.")
+        f = audio.astype(np.float32) / 32768.0 if audio.dtype == np.int16 else audio.astype(np.float32)
+        t0 = time.perf_counter()
+        with self._lock:
+            segs, info = self._decode(f, None)
+        if segs and _looks_silent(segs):
+            segs = []
+        text = " ".join(" ".join(s.text for s in segs).split())
+        return Transcript(text, info.language, len(f) / 16000, time.perf_counter() - t0,
+                          _no_speech_prob(segs) if segs else 1.0)
 
     def _decode(self, f: np.ndarray, prompt: str | None) -> tuple[list, object]:
         segments, info = self._model.transcribe(  # type: ignore[union-attr]

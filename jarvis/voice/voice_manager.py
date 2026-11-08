@@ -21,6 +21,7 @@ import asyncio
 import dataclasses
 import enum
 import logging
+import re
 import threading
 import time
 from collections import deque
@@ -44,6 +45,7 @@ from jarvis.voice.stt import Transcript, clean_transcript
 from jarvis.voice.tts import speakable_text, split_sentences
 from jarvis.voice.vad import (EndpointConfig, Endpointer, EndpointKind, EnergyVad, NoiseProfile, VadModel,
                               measure_noise, speech_threshold_for_noise)
+from jarvis.voice.wake_verify import WakeCandidateTracker, match_wake
 from jarvis.voice.wake_word import WakeDetection, WakeWordDetector, hey_threshold_from_sensitivity
 
 log = logging.getLogger(__name__)
@@ -81,6 +83,14 @@ class VoiceLevel:
 class WakeEvent:
     epoch: int
     detection: WakeDetection
+
+
+@dataclass(frozen=True)
+class WakeCandidateEvent:
+    """Uyandırma skoru eşiğin altında kalan kısa konuşma: konuşma tanımayla doğrulanacak."""
+    epoch: int
+    audio: np.ndarray
+    peak: float
 
 
 @dataclass(frozen=True)
@@ -124,9 +134,11 @@ class FrameProcessor:
 
     def __init__(self, vad: VadModel, wake: WakeWordDetector | None, echo: EchoGuard | None,
                  endpoint: EndpointConfig, post: Callable[[object], None], barge_threshold: float = 0.8,
-                 barge_frames: int = 3, preroll_frames: int = 6) -> None:
+                 barge_frames: int = 3, preroll_frames: int = 6,
+                 wake_verify: WakeCandidateTracker | None = None) -> None:
         self.vad = vad
         self.wake = wake
+        self.wake_verify = wake_verify   # Türkçe telaffuz için aday parçalar (None: kapalı)
         self.echo = echo
         self.endpointer = Endpointer(endpoint)
         self.post = post
@@ -209,12 +221,22 @@ class FrameProcessor:
             self._ring.append(samples)
             if mode is Mode.WAKE:
                 if det is not None:
+                    if self.wake_verify is not None:
+                        self.wake_verify.reset()
                     epoch = self._switch_to_listen()
                     self.post(WakeEvent(epoch, det))
-            elif mode is Mode.LISTEN:
-                self._listen(samples, prob, end_requested)
-            elif mode is Mode.BARGE:
-                self._barge(frame, prob, det)
+                elif self.wake_verify is not None and self.wake is not None:
+                    score = max(self.wake.last_scores.values(), default=0.0)
+                    cand = self.wake_verify.feed(samples, prob, score)
+                    if cand is not None:
+                        self.post(WakeCandidateEvent(self._epoch, cand.audio, cand.peak))
+            else:
+                if self.wake_verify is not None:
+                    self.wake_verify.reset()      # yalnızca beklemedeki konuşmalar aday olur
+                if mode is Mode.LISTEN:
+                    self._listen(samples, prob, end_requested)
+                elif mode is Mode.BARGE:
+                    self._barge(frame, prob, det)
 
     def _listen(self, samples: np.ndarray, prob: float, end_requested: bool) -> None:
         if end_requested:
@@ -303,6 +325,7 @@ class VoiceManager:
         self._speaking = False
         self._busy = False                # bir sesli istek işleniyor
         self._empty_streak = 0
+        self._verifying_wake = False
         self._tasks: set[asyncio.Task] = set()
         self._error: str | None = None
         self._starting = False
@@ -357,7 +380,10 @@ class VoiceManager:
             self.components = comps
             self._attach_vocabulary(comps)
             echo = EchoGuard(comps.player.history) if comps.player is not None else None
-            self.processor = FrameProcessor(comps.vad, comps.wake, echo, self._endpoint_config(), self._post)
+            verify = (WakeCandidateTracker(floor=self.settings.wake_verify_floor)
+                      if self.settings.wake_verify and comps.wake is not None and comps.stt is not None else None)
+            self.processor = FrameProcessor(comps.vad, comps.wake, echo, self._endpoint_config(), self._post,
+                                            wake_verify=verify)
             self.running = True
             if comps.stt is None:
                 self._error = next((n for n in comps.notes if n.startswith("Sesli komut kapalı")),
@@ -542,6 +568,15 @@ class VoiceManager:
             comps.wake.hey_enabled = "hey_jarvis" in words or not words
             comps.wake.jarvis_threshold = (self.settings.jarvis_threshold
                                            if ("jarvis" in words or comps.wake.custom_labels) else None)
+        proc = self.processor
+        if proc is not None:
+            want = self.settings.wake_verify and comps is not None and comps.wake is not None and comps.stt is not None
+            if want and proc.wake_verify is None:
+                proc.wake_verify = WakeCandidateTracker(floor=self.settings.wake_verify_floor)
+            elif not want:
+                proc.wake_verify = None
+            elif proc.wake_verify is not None:
+                proc.wake_verify.floor = self.settings.wake_verify_floor
         self._publish_status()
 
     # ---------- mikrofon ----------
@@ -620,6 +655,8 @@ class VoiceManager:
             return
         if isinstance(ev, WakeEvent):
             self._on_wake(ev.detection)
+        elif isinstance(ev, WakeCandidateEvent):
+            self._on_wake_candidate(ev)
         elif isinstance(ev, SpeechStartEvent):
             if self.state.state is S.WAKE_DETECTED:
                 self.state.transition(S.LISTENING, "Dinliyorum")
@@ -642,6 +679,41 @@ class VoiceManager:
             self._play_chime()
         assert self._loop is not None
         self._loop.call_later(self.WAKE_TO_LISTEN_S, self._wake_to_listening)
+
+    # ---------- Türkçe telaffuz: uyandırmayı konuşma tanımayla doğrulama ----------
+    def _on_wake_candidate(self, ev: WakeCandidateEvent) -> None:
+        comps = self.components
+        if (self._verifying_wake or comps is None or comps.stt is None or self.state.state is not S.STANDBY
+                or self._busy or getattr(self.chat, "busy", False)):
+            return
+        self._verifying_wake = True
+        self._spawn(self._verify_wake(ev), "voice-wake-verify")
+
+    async def _verify_wake(self, ev: WakeCandidateEvent) -> None:
+        comps = self.components
+        try:
+            assert comps is not None and comps.stt is not None
+            fn = getattr(comps.stt, "transcribe_plain", comps.stt.transcribe)
+            tr = await asyncio.get_running_loop().run_in_executor(self._executor, fn, ev.audio)
+        except Exception:  # noqa: BLE001 - doğrulama başarısızsa sessizce beklemeye devam
+            log.warning("Uyandırma doğrulaması çalışmadı", exc_info=True)
+            return
+        finally:
+            self._verifying_wake = False
+        m = match_wake(tr.text)
+        # Gizlilik: metin değil yalnızca skor ve sonuç
+        log.info("Uyandırma doğrulaması: skor %.3f, %.2f sn işlem, %s", ev.peak, tr.seconds,
+                 "eşleşti" if m else "eşleşmedi")
+        proc = self.processor
+        if m is None or proc is None or not self.running or self.state.state is not S.STANDBY or self._busy:
+            return
+        if len(re.sub(r"\W+", "", m.rest)) >= 2:
+            # "Carvis, Chrome'u aç": komut aynı cümlede; tekrar dinlemeden doğrudan işle
+            self.state.transition(S.WAKE_DETECTED, "Jarvis")
+            self.state.transition(S.LISTENING, "Dinliyorum")
+            self._spawn(self._handle_text_request(dataclasses.replace(tr, text=m.rest)), "voice-wake-command")
+        else:
+            self._on_wake(WakeDetection("jarvis", ev.peak, "doğrulama"))
 
     def _wake_to_listening(self) -> None:
         if self.state.state is S.WAKE_DETECTED:
@@ -733,42 +805,61 @@ class VoiceManager:
             # Gizlilik: logda metnin kendisi değil yalnızca uzunluğu
             log.info("Konuşma tanındı: %d karakter, %.1f sn ses, %.2f sn işlem", len(tr.text), tr.duration_s,
                      tr.seconds)
-            self.bus.publish(Topics.VOICE_TRANSCRIPT, tr)
-            if not tr.text:
-                # Gürültüde "anlayamadım" döngüsüne girme: art arda ikincisinde sessizce beklemeye dön
-                self._empty_streak += 1
-                if self._empty_streak == 1:
-                    await self._speak("Anlayamadım, tekrar söyler misin?", follow_up=True)
-                else:
-                    self._empty_streak = 0
-                    self.state.reset()
-                return
-            self._empty_streak = 0
-            failed: list[str] = []
-            answers: list[Any] = []   # yerel komutlar sonucu CHAT_DONE ile duyurur, değer döndürmez
-            unsubs = [self.bus.subscribe(Topics.CHAT_FAILED, failed.append),
-                      self.bus.subscribe(Topics.CHAT_DONE, answers.append)]
-            try:
-                done = await self._send(tr.text)
-            except Exception:  # noqa: BLE001
-                log.exception("Sesli istek Claude'a iletilemedi")
-                self.bus.publish(Topics.VOICE_ERROR, "İsteğini iletirken beklenmeyen bir hata oldu.")
-                done = None
-            finally:
-                for u in unsubs:
-                    u()
-            if self.state.state not in (S.STANDBY, S.ERROR):
-                self.state.reset()   # send erken döndüyse (meşgul, anahtar yok) durum kalmış olabilir
-            if done is None and answers and hasattr(answers[-1], "text"):
-                done = answers[-1]
-            if done is not None:
-                await self._speak(done.text, follow_up=True)
-            elif failed and self.state.state is not S.ERROR:
-                await self._speak(failed[-1], follow_up=False)
+            await self._process_transcript(tr)
         finally:
             self._busy = False
             self._sync_mode()
             self._publish_status()
+
+    async def _handle_text_request(self, tr: Transcript) -> None:
+        """Uyandırma kelimesiyle aynı cümlede söylenen komut (doğrulamadan gelir)."""
+        if self.state.state is not S.LISTENING:
+            self._sync_mode(force=True)
+            return
+        self._busy = True
+        try:
+            self.state.transition(S.PROCESSING, "Söylediğini anladım")
+            tr = dataclasses.replace(tr, text=clean_transcript(tr.text))
+            await self._process_transcript(tr)
+        finally:
+            self._busy = False
+            self._sync_mode()
+            self._publish_status()
+
+    async def _process_transcript(self, tr: Transcript) -> None:
+        """Tanınan metni yayınlar ve isteği işler (yerel komut ya da Claude), cevabı seslendirir."""
+        self.bus.publish(Topics.VOICE_TRANSCRIPT, tr)
+        if not tr.text:
+            # Gürültüde "anlayamadım" döngüsüne girme: art arda ikincisinde sessizce beklemeye dön
+            self._empty_streak += 1
+            if self._empty_streak == 1:
+                await self._speak("Anlayamadım, tekrar söyler misin?", follow_up=True)
+            else:
+                self._empty_streak = 0
+                self.state.reset()
+            return
+        self._empty_streak = 0
+        failed: list[str] = []
+        answers: list[Any] = []   # yerel komutlar sonucu CHAT_DONE ile duyurur, değer döndürmez
+        unsubs = [self.bus.subscribe(Topics.CHAT_FAILED, failed.append),
+                  self.bus.subscribe(Topics.CHAT_DONE, answers.append)]
+        try:
+            done = await self._send(tr.text)
+        except Exception:  # noqa: BLE001
+            log.exception("Sesli istek Claude'a iletilemedi")
+            self.bus.publish(Topics.VOICE_ERROR, "İsteğini iletirken beklenmeyen bir hata oldu.")
+            done = None
+        finally:
+            for u in unsubs:
+                u()
+        if self.state.state not in (S.STANDBY, S.ERROR):
+            self.state.reset()   # send erken döndüyse (meşgul, anahtar yok) durum kalmış olabilir
+        if done is None and answers and hasattr(answers[-1], "text"):
+            done = answers[-1]
+        if done is not None:
+            await self._speak(done.text, follow_up=True)
+        elif failed and self.state.state is not S.ERROR:
+            await self._speak(failed[-1], follow_up=False)
 
     # ---------- konuşma ----------
     def _enter_speaking(self) -> bool:

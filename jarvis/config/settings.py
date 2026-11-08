@@ -92,6 +92,9 @@ class VoiceSettings(_Section):
     barge_in: bool = True                               # konuşurken söz kesilebilsin
     wake_chime: bool = True                             # uyanınca kısa bir ses çal
     noise_floor_dbfs: float | None = Field(None, ge=-120.0, le=0.0)  # ortam gürültüsü ölçümü
+    # Türkçe telaffuz ("Carvis"): uyandırma skoru düşük kalan kısa konuşmaları konuşma tanımayla doğrula
+    wake_verify: bool = True
+    wake_verify_floor: float = Field(0.03, ge=0.001, le=0.9)
 
 
 class MemorySettings(_Section):

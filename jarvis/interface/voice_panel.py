@@ -145,8 +145,14 @@ class VoicePanel(QWidget):
         self.chime = QCheckBox("Uyanınca kısa bir ses çal")
         self.chime.setChecked(v.wake_chime)
         self.chime.toggled.connect(self._apply_live_settings)
+        self.wake_verify = QCheckBox("Türkçe söylenişi de tanı (\"Carvis\", \"Cervis\")")
+        self.wake_verify.setToolTip("Uyandırma modeli emin olamadığında kısa konuşma parçası yerelde yazıya "
+                                    "çevrilip kontrol edilir. \"Carvis, Chrome'u aç\" gibi tek cümle de çalışır.")
+        self.wake_verify.setChecked(v.wake_verify)
+        self.wake_verify.toggled.connect(self._apply_live_settings)
         form.addRow("", self.barge)
         form.addRow("", self.chime)
+        form.addRow("", self.wake_verify)
 
         self.stt_combo = QComboBox()
         for key, label in STT_CHOICES:
@@ -291,6 +297,7 @@ class VoicePanel(QWidget):
         v.silence_timeout_s = round(self.silence.value(), 1)
         v.barge_in = self.barge.isChecked()
         v.wake_chime = self.chime.isChecked()
+        v.wake_verify = self.wake_verify.isChecked()
         self._update_labels()
         self._save(restart=False)
         self.voice.apply_settings()
