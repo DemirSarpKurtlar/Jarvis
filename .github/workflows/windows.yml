@@ -105,7 +105,8 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         # Model testleri sonraki adımda, modeller indirildikten sonra çalışır
-        run: python -m pytest -q -ra -m "not live and not models" --junitxml="$env:CI_LOGS\pytest-windows.xml"
+        # Qt kullanan her test dosyası ayrı süreçte (bkz. scripts/run_tests_isolated.py)
+        run: python scripts/run_tests_isolated.py --junit-dir "$env:CI_LOGS" -- -m "not live and not models"
 
       - name: Ses modelleri (önbellek)
         uses: actions/cache@v4
