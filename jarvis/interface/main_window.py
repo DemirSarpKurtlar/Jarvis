@@ -32,6 +32,7 @@ from jarvis.interface.components import icon
 from jarvis.interface.conversations_view import ConversationsView
 from jarvis.interface.dialogs import ask_budget, ask_tool_confirmation
 from jarvis.interface.memory_view import MemoryView
+from jarvis.interface.overlay import OverlayController  # dinleme göstergesi
 from jarvis.interface.settings_view import SettingsView
 from jarvis.interface.system_view import SystemView  # Aşama 5
 from jarvis.interface.automation_view import AutomationView  # Aşama 6
@@ -354,6 +355,10 @@ class MainWindow(QMainWindow):
         bus.subscribe(Topics.VOICE_DOWNLOAD, self._on_voice_download)
         bus.subscribe(Topics.VOICE_ERROR, lambda msg: self.panel.banner.show_message(msg, "uyari"))
 
+        # --- Dinleme göstergesi: ekranın üstünde, yalnızca sesli akışta ve bu pencere öndeyken değil ---
+        self.overlay = OverlayController(assistant, fonts, main_window_active=self._is_foreground, parent=self)
+        # --- Dinleme göstergesi sonu ---
+
         if assistant.store.load_warning:
             self.panel.banner.show_message(assistant.store.load_warning, "uyari")
 
@@ -414,6 +419,10 @@ class MainWindow(QMainWindow):
         box = ask_tool_confirmation(self, req.prompt, answer)
         boxes.append(box)
     # --- Aşama 5 sonu ---
+
+    def _is_foreground(self) -> bool:
+        """Pencere görünür, simge durumunda değil ve etkin mi (dinleme göstergesi için)."""
+        return self.isVisible() and not self.isMinimized() and self.isActiveWindow()
 
     def navigate(self, key: str) -> None:
         self.stack.setCurrentWidget(self.pages[key])
