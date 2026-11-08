@@ -54,6 +54,10 @@ class TaskScheduler:
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
         self.results: list[tuple[int, ToolResult | None]] = []
+        # --- SISTEM ---
+        # Kodun onaydan SONRA kurduğu iç işler (gecikmeli uyku vb.): id -> (iş, iptal kancası, uyarı tutamacı)
+        self._internal: dict[int, list] = {}
+        # --- SISTEM sonu ---
 
     def bind(self, loop: asyncio.AbstractEventLoop) -> None:
         self.loop = loop
@@ -88,6 +92,12 @@ class TaskScheduler:
             task = self._tasks.pop(task_id, None)
         if task is None:
             return
+        # --- SISTEM ---
+        internal = self._internal.pop(task_id, None)
+        if internal is not None:
+            await self._fire_internal(task, internal[0])
+            return
+        # --- SISTEM sonu ---
         tool, build, _ = ACTIONS[task.action]
         if tool is None:
             self.notify(f"Hatırlatma: {task.text}")
@@ -108,6 +118,9 @@ class TaskScheduler:
                 self.loop.call_soon_threadsafe(task.handle.cancel)
             except RuntimeError:  # döngü kapanmış: zamanlayıcı zaten çalışmayacak
                 pass
+        # --- SISTEM ---
+        self._cancel_internal(task_id)
+        # --- SISTEM sonu ---
         return True
 
     def list(self) -> list[ScheduledTask]:
@@ -115,8 +128,80 @@ class TaskScheduler:
             return sorted(self._tasks.values(), key=lambda t: t.due)
 
     def cancel_all(self) -> None:
+        # --- SISTEM ---
+        # Kapanışta iç işler (örn. bekleyen gecikmeli kapatma) iptal KANCASI çalıştırılmadan bırakılır:
+        # JARVIS kapanınca uyku işi zaten çalışmaz; Windows'un kendi kapatma geri sayımına dokunulmaz.
+        with self._lock:
+            for entry in self._internal.values():
+                entry[1] = None
+        # --- SISTEM sonu ---
         for t in self.list():
             self.cancel(t.id)
+
+    # --- SISTEM ---
+    def schedule_internal(self, kind: str, label: str, delay_s: float, job: Callable[[], str | None] | None,
+                          on_cancel: Callable[[], None] | None = None,
+                          warn_before_s: float | None = None) -> ScheduledTask:
+        """Kodun, kullanıcı onayından SONRA kurduğu gecikmeli iş (örn. "1 saat sonra uyku").
+
+        Araç olarak açılmaz: model bu yolla yeni bir eylem zamanlayamaz. `job` arka plan thread'inde
+        çalışır, dönen metin bildirim olarak gösterilir. Görev listesinde ve Otomasyon ekranında geri
+        sayımıyla görünür; iptal edilirse `on_cancel` çağrılır. `warn_before_s`: sona bu kadar kala uyarı.
+        """
+        if self.loop is None:
+            raise ToolError("döngü yok", "Zamanlayıcı henüz hazır değil.")
+        with self._lock:
+            if len(self._tasks) >= MAX_TASKS:
+                raise ToolError("çok", f"En çok {MAX_TASKS} zamanlanmış görev olabilir.")
+            task = ScheduledTask(next(self._ids), kind, label, -1, datetime.now() + timedelta(seconds=delay_s))
+            self._tasks[task.id] = task
+            entry = [job, on_cancel, None]
+            self._internal[task.id] = entry
+
+        def arm() -> None:
+            task.handle = self.loop.call_later(delay_s, lambda: asyncio.ensure_future(self._fire(task.id)))
+            if warn_before_s and delay_s > warn_before_s + 5:
+                left = int(warn_before_s)
+                when = f"{left // 60} dakika" if left >= 60 else f"{left} saniye"
+                entry[2] = self.loop.call_later(delay_s - warn_before_s, lambda: self.notify(
+                    f"{label}: {when} kaldı. İptal etmek için 'kapatmayı iptal et' diyebilirsin."))
+
+        self.loop.call_soon_threadsafe(arm)
+        return task
+
+    async def _fire_internal(self, task: ScheduledTask, job: Callable[[], str | None] | None) -> None:
+        if job is None:
+            return
+        try:
+            msg = await asyncio.get_running_loop().run_in_executor(self.registry.executor, job)
+        except Exception as e:  # noqa: BLE001
+            log.exception("Zamanlanmış iç iş başarısız (%s)", task.action)
+            msg = getattr(e, "user_message", None) or f"{task.text} yapılamadı."
+        if msg:
+            self.notify(msg)
+
+    def _cancel_internal(self, task_id: int) -> None:
+        entry = self._internal.pop(task_id, None)
+        if entry is None:
+            return
+        if entry[2] is not None and self.loop is not None:
+            try:
+                self.loop.call_soon_threadsafe(entry[2].cancel)
+            except RuntimeError:
+                pass
+        if entry[1] is not None:
+            try:
+                entry[1]()
+            except Exception:  # noqa: BLE001
+                log.exception("İç iş iptal kancası hata verdi")
+
+    def cancel_kind(self, prefix: str) -> list[ScheduledTask]:
+        """Türü `prefix` ile başlayan bütün görevleri iptal eder (örn. "guc_")."""
+        out = [t for t in self.list() if t.action.startswith(prefix)]
+        for t in out:
+            self.cancel(t.id)
+        return out
+    # --- SISTEM sonu ---
 
 
 def register(reg: ToolRegistry, ctx: ToolContext) -> None:

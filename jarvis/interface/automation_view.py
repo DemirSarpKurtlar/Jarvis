@@ -23,6 +23,9 @@ ACTION_LABELS = [
     ("ses_ayarla", "Ses seviyesini ayarla"),
 ]
 LABEL_OF = dict(ACTION_LABELS)
+# --- SISTEM --- (onaydan sonra kurulan güç geri sayımları da listede görünür)
+LABEL_OF.update({k: "Güç" for k in ("guc_kapat", "guc_yeniden", "guc_uyku", "guc_hazirda")})
+# --- SISTEM sonu ---
 
 
 def remaining(due: datetime, now: datetime | None = None) -> str:
@@ -95,6 +98,12 @@ class AutomationView(QWidget):
         self.routines_panel = RoutinesPanel(assistant)
         lay.addWidget(self.routines_panel, 20)
         # --- RUTIN sonu ---
+        # --- SISTEM ---
+        from jarvis.interface.sistem_panel import SistemPanel
+        lay.addSpacing(14)
+        self.sistem_panel = SistemPanel(assistant, self)
+        lay.addWidget(self.sistem_panel)
+        # --- SISTEM sonu ---
         lay.addStretch(1)
 
         self._timer = QTimer(self, interval=5000, timeout=self.refresh)

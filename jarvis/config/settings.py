@@ -128,6 +128,15 @@ class BriefingSettings(_Section):
     # Otomatik brifingin en son verildiği gün (YYYY-MM-DD); günde bir kez
     last_auto_day: str = ""
 # --- RUTIN sonu ---
+# --- SISTEM ---
+class SistemSettings(_Section):
+    # Oyun sırasında ekran kartı sıcaklık uyarısı (jarvis/system/gpu_watch.py)
+    gpu_alert_enabled: bool = True
+    gpu_alert_threshold_c: int = Field(85, ge=50, le=110)
+    gpu_alert_duration_s: int = Field(30, ge=0, le=600)     # eşiğin üstünde bu kadar kalırsa uyar
+    gpu_alert_cooldown_min: int = Field(10, ge=1, le=240)   # iki uyarı arası en az
+    gpu_alert_speak: bool = True                            # sesli de söyle (JARVIS boştaysa)
+# --- SISTEM sonu ---
 
 
 class Settings(_Section):
@@ -140,6 +149,7 @@ class Settings(_Section):
     memory: MemorySettings = Field(default_factory=MemorySettings)
     tools: ToolSettings = Field(default_factory=ToolSettings)  # Aşama 5
     briefing: BriefingSettings = Field(default_factory=BriefingSettings)  # --- RUTIN --- (tek satır)
+    sistem: SistemSettings = Field(default_factory=SistemSettings)  # SISTEM
 
 
 class SettingsStore:

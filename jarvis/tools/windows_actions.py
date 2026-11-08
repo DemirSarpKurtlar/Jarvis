@@ -166,6 +166,56 @@ def power(action: str, delay_s: int) -> None:  # pragma: no cover - Windows
         raise ToolError("shutdown", "Windows kapatma isteğini kabul etmedi.")
 
 
+# --- SISTEM ---
+# Uyku / hazırda bekletme: shutdown.exe gecikmeli uyku yapamaz; gecikme uygulama içi zamanlayıcıyla
+# (onaydan sonra kurulan iç iş olarak) uygulanır ve Otomasyon ekranında geri sayımıyla görünür.
+POWER_TEXT = {  # eylem -> (onay başlığı, "... sonra <fiil>", görev etiketi, zamanlayıcı türü)
+    "shutdown": ("Bilgisayarı kapat", "kapanacak", "Bilgisayar kapanacak", "guc_kapat"),
+    "restart": ("Bilgisayarı yeniden başlat", "yeniden başlayacak", "Bilgisayar yeniden başlayacak", "guc_yeniden"),
+    "sleep": ("Uyku moduna al", "uyku moduna geçecek", "Uyku modu", "guc_uyku"),
+    "hibernate": ("Hazırda beklet", "hazırda bekletmeye geçecek", "Hazırda bekletme", "guc_hazirda"),
+}
+MIN_SHUTDOWN_DELAY_S = 30
+MIN_SUSPEND_DELAY_S = 5   # "uykuya al" cevabı söylenebilsin
+
+
+def human_delay(seconds: int) -> str:
+    """3600 -> "1 saat", 5400 -> "1 saat 30 dakika", 45 -> "45 saniye"."""
+    h, rest = divmod(int(seconds), 3600)
+    m, s = divmod(rest, 60)
+    parts = [f"{h} saat"] if h else []
+    if m:
+        parts.append(f"{m} dakika")
+    if s and not h:
+        parts.append(f"{s} saniye")
+    return " ".join(parts) or "0 saniye"
+
+
+def suspend(hibernate: bool) -> None:  # pragma: no cover - Windows
+    if not IS_WINDOWS:
+        raise NotSupportedError()
+    fn = ctypes.windll.powrprof.SetSuspendState
+    fn.argtypes = [ctypes.c_ubyte, ctypes.c_ubyte, ctypes.c_ubyte]
+    fn.restype = ctypes.c_ubyte
+    if not fn(1 if hibernate else 0, 0, 0):
+        raise ToolError("uyku", "Windows " + ("hazırda bekletme" if hibernate else "uyku") +
+                        " isteğini kabul etmedi.")
+
+
+def hibernate_available() -> bool | None:  # pragma: no cover - Windows
+    """GetPwrCapabilities: SystemS4 ve HiberFilePresent. Okunamazsa None."""
+    if not IS_WINDOWS:
+        return None
+    buf = (ctypes.c_ubyte * 256)()
+    try:
+        if not ctypes.windll.powrprof.GetPwrCapabilities(ctypes.byref(buf)):
+            return None
+    except (OSError, AttributeError):
+        return None
+    return bool(buf[6]) and bool(buf[8])
+# --- SISTEM sonu ---
+
+
 def cancel_power() -> bool:  # pragma: no cover - Windows
     if not IS_WINDOWS:
         raise NotSupportedError()
@@ -176,8 +226,10 @@ def cancel_power() -> bool:  # pragma: no cover - Windows
 
 class ActionTools:
     def __init__(self, ctx: ToolContext, runner=run_approved, locker=lock_workstation,  # noqa: ANN001
-                 power_fn=power, cancel_fn=cancel_power) -> None:
+                 power_fn=power, cancel_fn=cancel_power,
+                 suspend_fn=suspend, hibernate_fn=hibernate_available) -> None:  # SISTEM: uyku arka uçları
         self.ctx, self.runner, self.locker, self.power_fn, self.cancel_fn = ctx, runner, locker, power_fn, cancel_fn
+        self.suspend_fn, self.hibernate_fn = suspend_fn, hibernate_fn  # SISTEM
 
     def _open(self, target: str) -> None:
         if self.ctx.opener is None:
@@ -240,21 +292,83 @@ class ActionTools:
         self.locker()
         return ToolOutput("Ekranı kilitledim.", {"locked": True})
 
+    # --- SISTEM ---
+    def prepare_power(self, args: dict) -> dict:
+        if args["action"] in ("shutdown", "restart") and args["delay_seconds"] < MIN_SHUTDOWN_DELAY_S:
+            raise ToolError("gecikme", f"Kapatma ve yeniden başlatma için en az {MIN_SHUTDOWN_DELAY_S} saniye "
+                                       "gecikme gerekir (iptal edebilmen için).")
+        if args["action"] == "hibernate" and self.hibernate_fn() is False:
+            raise ToolError("hazırda bekletme", "Hazırda bekletme bu bilgisayarda kapalı (etkinleştirmek yönetici "
+                                                "izni ister: powercfg /hibernate on). İstersen uyku moduna alabilirim.")
+        return dict(args)
+
+    def _scheduler(self):  # noqa: ANN202
+        sched = self.ctx.scheduler
+        return sched if sched is not None and getattr(sched, "loop", None) is not None else None
+
+    def _suspend_later(self, action: str, delay: int) -> ToolOutput:
+        sched = self._scheduler()
+        if sched is None:
+            raise ToolError("zamanlayıcı", "Zamanlayıcı hazır değil; uyku modunu zamanlayamadım.")
+        d = max(MIN_SUSPEND_DELAY_S, delay)
+        _title, verb, label, kind = POWER_TEXT[action]
+        hib = action == "hibernate"
+
+        def job() -> str | None:
+            self.suspend_fn(hib)
+            return None   # uyanınca bildirim gerekmez
+
+        task = sched.schedule_internal(kind, label, d, job, warn_before_s=60 if d >= 180 else None)
+        when = "birkaç saniye içinde" if delay < MIN_SUSPEND_DELAY_S else f"{human_delay(d)} sonra"
+        return ToolOutput(f"Bilgisayar {when} {verb}. İptal etmek için 'kapatmayı iptal et' diyebilirsin.",
+                          {"action": action, "delay_seconds": d, "task_id": task.id,
+                           "due": task.due.isoformat(timespec="seconds")})
+    # --- SISTEM sonu ---
+
     def power(self, args: dict) -> ToolOutput:
+        # --- SISTEM ---
+        if args["action"] in ("sleep", "hibernate"):
+            return self._suspend_later(args["action"], args["delay_seconds"])
+        # --- SISTEM sonu ---
         self.power_fn(args["action"], args["delay_seconds"])
         what = "kapanacak" if args["action"] == "shutdown" else "yeniden başlayacak"
-        return ToolOutput(f"Bilgisayar {args['delay_seconds']} saniye içinde {what}. İptal etmek için "
+        # --- SISTEM ---
+        # Geri sayım Otomasyon ekranında görünsün; oradan iptal etmek `shutdown /a` çağırır
+        sched = self._scheduler()
+        if sched is not None:
+            d = args["delay_seconds"]
+            try:
+                sched.schedule_internal(POWER_TEXT[args["action"]][3], POWER_TEXT[args["action"]][2], d, None,
+                                        on_cancel=self.cancel_fn, warn_before_s=60 if d >= 180 else None)
+            except ToolError:
+                log.info("Kapatma geri sayımı görev listesine eklenemedi")
+        return ToolOutput(f"Bilgisayar {human_delay(args['delay_seconds'])} içinde {what}. İptal etmek için "
                           "'kapatmayı iptal et' diyebilirsin.", {"action": args["action"]})
+        # --- SISTEM sonu ---
 
     def power_prompt(self, args: dict) -> ConfirmPrompt:
-        what = "kapatılacak" if args["action"] == "shutdown" else "yeniden başlatılacak"
-        return ConfirmPrompt("power_action", "Bilgisayarı " + ("kapat" if args["action"] == "shutdown" else
-                                                                "yeniden başlat"),
-                             f"Bilgisayar {args['delay_seconds']} saniye sonra {what}. Kaydedilmemiş işler kaybolabilir.",
-                             danger=True, confirm_label="Onayla")
+        # --- SISTEM ---
+        title, verb, _label, _kind = POWER_TEXT[args["action"]]
+        d = args["delay_seconds"]
+        when = "birkaç saniye içinde" if d < MIN_SUSPEND_DELAY_S else f"{human_delay(d)} sonra"
+        risky = args["action"] in ("shutdown", "restart")
+        note = ("Kaydedilmemiş işler kaybolabilir." if risky else
+                "Açık programlar beklemede kalır; uyku sırasında indirmeler ve JARVIS durur.")
+        return ConfirmPrompt("power_action", title, f"Bilgisayar {when} {verb}. {note} İptal etmek için "
+                             "'kapatmayı iptal et' diyebilirsin.", danger=risky, confirm_label="Onayla")
+        # --- SISTEM sonu ---
 
     def cancel(self, args: dict) -> ToolOutput:
-        if self.cancel_fn():
+        # --- SISTEM ---
+        sched = self.ctx.scheduler
+        pending = sched.cancel_kind("guc_") if sched is not None and hasattr(sched, "cancel_kind") else []
+        marked_shutdown = any(t.action in ("guc_kapat", "guc_yeniden") for t in pending)
+        cancelled = marked_shutdown or bool(self.cancel_fn())
+        if pending and not marked_shutdown and not cancelled:
+            return ToolOutput("Planlanan " + ", ".join(t.text.lower() for t in pending) + " iptal edildi.",
+                              {"cancelled": True})
+        # --- SISTEM sonu ---
+        if cancelled:
             return ToolOutput("Planlanan kapatma iptal edildi.", {"cancelled": True})
         return ToolOutput("İptal edilecek planlı bir kapatma yoktu.", {"cancelled": False})
 
@@ -326,15 +440,18 @@ def register(reg: ToolRegistry, ctx: ToolContext, **backends) -> ActionTools:  #
         description="Windows oturumunu kilitler. / Locks the Windows session.",
         input_schema=js.obj(), permission=Permission.SAFE, handler=t.lock))
     reg.register(ToolSpec(
-        name="power_action", title="Kapat / yeniden başlat", category="eylem", platforms=WINDOWS_ONLY,
-        description=("Bilgisayarı gecikmeyle kapatır ya da yeniden başlatır (iptal edilebilir). Onay ister. / Shuts down "
-                     "or restarts after a delay (cancellable). Needs confirmation."),
-        input_schema=js.obj(action=js.string("İşlem / action", enum=["shutdown", "restart"]),
-                            delay_seconds=js.integer("Gecikme saniye / delay seconds", 30, 3600)),
-        permission=Permission.CONFIRM, handler=t.power, confirm=t.power_prompt))
+        # --- SISTEM --- (uyku/hazırda bekletme ve 24 saate kadar gecikme eklendi)
+        name="power_action", title="Kapat / yeniden başlat / uyku", category="eylem", platforms=WINDOWS_ONLY,
+        description=("Bilgisayarı gecikmeyle kapatır, yeniden başlatır, uyku ya da hazırda bekletme moduna alır "
+                     "(iptal edilebilir; kapatmada en az 30 sn). Onay ister. / Shutdown, restart, sleep or hibernate "
+                     "after a delay (cancellable). Needs confirmation."),
+        input_schema=js.obj(action=js.string("İşlem / action", enum=list(POWER_TEXT)),
+                            delay_seconds=js.integer("Gecikme saniye / delay seconds", 0, 86400)),
+        permission=Permission.CONFIRM, handler=t.power, confirm=t.power_prompt, prepare=t.prepare_power))
+        # --- SISTEM sonu ---
     reg.register(ToolSpec(
         name="cancel_power_action", title="Kapatmayı iptal et", category="eylem", platforms=WINDOWS_ONLY,
-        description="Planlanmış kapatma/yeniden başlatmayı iptal eder. / Cancels a pending shutdown/restart.",
+        description="Planlanmış kapatma/yeniden başlatma/uykuyu iptal eder. / Cancels a pending shutdown/restart/sleep.",
         input_schema=js.obj(), permission=Permission.SAFE, handler=t.cancel))
     reg.register(ToolSpec(
         name="run_approved_command", title="Onaylı komut", category="eylem", platforms=WINDOWS_ONLY,

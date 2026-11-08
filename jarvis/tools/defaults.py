@@ -15,6 +15,7 @@ from jarvis.security.audit_logger import AuditLogger
 from jarvis.security.permission_manager import PermissionManager
 from jarvis.tools import applications, files, hardware, processes, scheduler, system_info, windows_actions
 from jarvis.tools.registry import ToolContext, ToolRegistry
+from jarvis.tools import sistem  # SISTEM: bakım, ağ, paket ve rutin araçları
 
 # --- BELGE ---
 from jarvis.tools import clipboard, documents  # noqa: E402,I001
@@ -50,6 +51,7 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     # --- MEDYA ---
     media.register(reg, ctx)
     # --- MEDYA sonu ---
+    sistem.register(reg, ctx)  # SISTEM
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
     # --- RUTIN ---
