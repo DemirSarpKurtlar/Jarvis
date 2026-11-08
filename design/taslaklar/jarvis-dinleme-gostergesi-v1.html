@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JARVIS — Dinleme göstergesi taslağı v1</title>
+<style>
+/* Fontlar depodaki OFL dosyalarından yüklenir; yoksa Segoe UI'ye düşer. */
+@font-face { font-family: "Saira"; font-weight: 300; src: url("../../jarvis/assets/fonts/Saira-Light.ttf"); }
+@font-face { font-family: "Saira"; font-weight: 400; src: url("../../jarvis/assets/fonts/Saira-Regular.ttf"); }
+@font-face { font-family: "Saira"; font-weight: 500; src: url("../../jarvis/assets/fonts/Saira-Medium.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; src: url("../../jarvis/assets/fonts/IBMPlexSans-Regular.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; src: url("../../jarvis/assets/fonts/IBMPlexSans-Medium.ttf"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; src: url("../../jarvis/assets/fonts/IBMPlexSans-SemiBold.ttf"); }
+
+/* ---------- Tasarım belirteçleri (jarvis-arayuz-v1 ile aynı) ---------- */
+@property --d { syntax: "<color>"; inherits: true; initial-value: #52E4F2; }
+:root {
+  --gece: #060C18; --derinlik: #0B1526; --celik: #1A2943; --sis: #6F86A6; --buz: #D6E9F3;
+  --cyan: #52E4F2; --menekse: #8F9BFF; --amber: #F3B648; --kizil: #FF5A6A;
+  --kz: rgba(7, 13, 26, .97);           /* gösterge zemini: neredeyse opak, arkası okunmaz */
+  --d: #52E4F2;                         /* o anki durum rengi */
+  --f-ekran: "Saira", "Segoe UI", system-ui, sans-serif;
+  --f-govde: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  transition: --d .35s ease;
+}
+* { box-sizing: border-box; margin: 0; }
+html, body { height: 100%; overflow: hidden; }
+body { background: #000; color: var(--buz); font-family: var(--f-govde); -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* ---------- Ekran(lar) ---------- */
+.ekranlar { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; gap: 28px; }
+.ekran-kutu { position: relative; }
+.ekran { position: absolute; left: 0; top: 0; overflow: hidden; transform-origin: 0 0; background: #000; }
+.ekran-etiket { position: absolute; left: 0; top: calc(100% + 10px); font-size: 13px; color: #B9C6D6; }
+.ekran-etiket b { color: #fff; font-weight: 600; margin-right: 6px; }
+body:not(.karsilastir) .ekran-etiket { display: none; }
+.karsilastir .ekranlar { background: #10141B; padding-bottom: 150px; }
+
+/* --- Sahne 1: oyun (CSS ile soyut bir stadyum maçı, telifli öğe yok) --- */
+.oyun, .masaustu { position: absolute; inset: 0; }
+.ekran[data-arka="oyun"] .masaustu, .ekran[data-arka="masaustu"] .oyun { display: none; }
+.oyun-ic { position: absolute; inset: -12px; filter: blur(3.4px) saturate(1.1); background: #070a1c; }
+.gok { position: absolute; inset: 0 0 42% 0; background:
+  radial-gradient(36% 70% at 16% 0%, rgba(255,232,196,.65), transparent 62%),
+  radial-gradient(36% 70% at 84% 0%, rgba(206,226,255,.6), transparent 62%),
+  linear-gradient(180deg, #0a0f2e 0%, #1c1a52 55%, #3b2b66 100%); }
+.tribun { position: absolute; left: 0; right: 0; top: 33%; height: 27%; background:
+  radial-gradient(circle, rgba(255,196,130,.75) 1.4px, transparent 2px) 0 0 / 12px 9px,
+  radial-gradient(circle, rgba(150,186,255,.65) 1.4px, transparent 2px) 6px 4px / 14px 10px,
+  radial-gradient(circle, rgba(255,255,255,.4) 1px, transparent 1.6px) 3px 7px / 9px 13px,
+  linear-gradient(180deg, #221a46, #120d26 80%, #0a1a24); }
+.tribun::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 9%; background: linear-gradient(90deg, #ff8a3a, #2a1a40 25%, #2a1a40 75%, #3aa0ff); opacity: .9; }
+.saha-kap { position: absolute; left: 0; right: 0; top: 60%; bottom: 0; perspective: 520px; overflow: hidden; }
+.saha { position: absolute; left: -60%; right: -60%; top: 0; height: 260%; transform-origin: 50% 0; transform: rotateX(72deg);
+  background: repeating-linear-gradient(90deg, #0f4a37 0 7%, #145a43 7% 14%); }
+.saha .daire { position: absolute; left: 50%; top: 16%; width: 18%; aspect-ratio: 1; transform: translateX(-50%); border: 4px solid rgba(255,255,255,.55); border-radius: 50%; }
+.gol-isik { position: absolute; top: 46%; width: 30%; height: 30%; border-radius: 50%; filter: blur(30px); }
+.gol-isik.sol { left: -8%; background: rgba(255,130,40,.55); }
+.gol-isik.sag { right: -8%; background: rgba(40,150,255,.55); }
+.top { position: absolute; left: 58%; top: 63%; width: 5.4%; aspect-ratio: 1; border-radius: 50%;
+  background: radial-gradient(circle at 34% 30%, #fff, #d4dae4 38%, #6a7386 72%, #262b37);
+  box-shadow: 0 0 46px rgba(255,255,255,.28); }
+.top::before { content: ""; position: absolute; right: 70%; top: 22%; width: 260%; height: 56%; border-radius: 99px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.28)); }
+.arac { position: absolute; left: 6%; bottom: 7%; width: 30%; height: 17%; }
+.arac .govde { position: absolute; inset: 0 0 18% 0; clip-path: polygon(0 72%, 22% 36%, 64% 16%, 92% 34%, 100% 60%, 100% 100%, 0 100%);
+  background: linear-gradient(170deg, #3d8cf0, #123a7a 60%, #0a1f45); }
+.arac .govde::after { content: ""; position: absolute; left: 30%; right: 18%; top: 28%; height: 5%; background: #8fe6ff; opacity: .7; }
+.arac i { position: absolute; bottom: 0; width: 17%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, #3b404d 30%, #0b0d12 34%); }
+.arac i:nth-of-type(1) { left: 10%; } .arac i:nth-of-type(2) { right: 12%; }
+.arac .alev { position: absolute; left: -26%; top: 42%; width: 32%; height: 34%; border-radius: 50%;
+  background: radial-gradient(closest-side, #fff6d0, #ffb347 40%, rgba(255,90,40,.5) 70%, transparent); }
+/* Oyunun kendi arayüzü (bulanık değil) */
+.hud { position: absolute; left: 50%; top: 0; transform: translateX(-50%); display: flex; align-items: stretch; height: 54px;
+  font-family: "Arial Black", "Segoe UI", sans-serif; font-weight: 900; font-style: italic; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.35); }
+.hud .skor { width: 64px; display: grid; place-items: center; font-size: 28px; }
+.hud .mavi { background: linear-gradient(180deg, #2f86ff, #1559c4); clip-path: polygon(0 0, 100% 0, 100% 100%, 14% 100%); }
+.hud .turuncu { background: linear-gradient(180deg, #ff9a3c, #e0661a); clip-path: polygon(0 0, 100% 0, 86% 100%, 0 100%); }
+.hud .sure { width: 104px; display: grid; place-items: center; font-size: 26px; background: rgba(12,14,24,.82); }
+.hud-boost { position: absolute; right: 3.5%; bottom: 6%; width: 120px; height: 120px; border-radius: 50%;
+  border: 9px solid rgba(255,170,60,.85); border-left-color: rgba(255,255,255,.12); border-bottom-color: rgba(255,255,255,.12);
+  display: grid; place-items: center; color: #fff; font: italic 900 36px "Arial Black", sans-serif; background: rgba(0,0,0,.35); }
+.ekran.hud-yok .hud, .ekran.hud-yok .hud-boost { display: none; }
+
+/* --- Sahne 2: açık renkli masaüstü (okunabilirlik testi) --- */
+.masaustu { background: linear-gradient(160deg, #d9e7f3, #f4f6f8 55%, #f3ebe0); font-family: "Segoe UI", system-ui, sans-serif; color: #1b1f24; }
+.pencere { position: absolute; left: 0; right: 0; top: 0; bottom: 48px; background: #fff; display: grid; grid-template-rows: 34px 30px 1fr; }
+.pencere .baslik { display: flex; align-items: center; padding: 0 14px; font-size: 12px; background: #f6f7f9; color: #333; }
+.pencere .baslik span:last-child { margin-left: auto; letter-spacing: 22px; color: #555; }
+.pencere .menu { display: flex; gap: 18px; padding: 0 14px; align-items: center; font-size: 13px; border-bottom: 1px solid #e6e8eb; }
+.pencere .yazi { padding: 16px 18px; font: 15px/1.6 Consolas, "Cascadia Mono", monospace; color: #222; white-space: pre-wrap; }
+.gorev { position: absolute; left: 0; right: 0; bottom: 0; height: 48px; background: rgba(238,241,245,.96); border-top: 1px solid #d9dde3;
+  display: flex; justify-content: center; align-items: center; gap: 10px; }
+.gorev i { width: 30px; height: 30px; border-radius: 7px; background: #c9d3de; }
+.gorev i:nth-child(1) { background: #4d8fe0; } .gorev i:nth-child(3) { background: #e9b949; } .gorev i:nth-child(4) { background: #5aa86a; }
+
+/* ======================================================================
+   VARYANT A — Kapsül
+   ====================================================================== */
+.ekran[data-varyant="b"] .a-kap, .ekran[data-varyant="a"] .b-kap { display: none; }
+.a-kap { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 5;
+  transition: opacity .38s ease, transform .38s cubic-bezier(.3,.7,.2,1); }
+.kapsul { position: relative; overflow: hidden; border-radius: 22px; background: var(--kz);
+  border: 1px solid color-mix(in srgb, var(--d) 42%, #1A2943);
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 12px 30px -8px rgba(0,0,0,.6), 0 0 24px -6px color-mix(in srgb, var(--d) 45%, transparent), inset 0 1px 0 rgba(255,255,255,.05);
+  transition: width .34s cubic-bezier(.3,.8,.25,1), height .34s cubic-bezier(.3,.8,.25,1); }
+.ic { position: absolute; left: 0; top: 0; width: max-content; display: flex; align-items: center; min-height: 42px; padding: 5px 16px 5px 5px; }
+.ic.bos { padding-right: 5px; }
+.halka { position: relative; flex: none; width: 32px; height: 32px; }
+.halka canvas { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; transform: translate(-50%, -50%); }
+.metin { display: flex; align-items: baseline; margin-left: 10px; min-width: 0; }
+.ic.bos .metin { display: none; }
+.ana { white-space: nowrap; }
+.ana.durum-yazi { font-family: var(--f-ekran); font-weight: 400; font-size: 15.5px; letter-spacing: .015em; color: var(--d); }
+.ana.soz { font-size: 14.5px; color: var(--buz); max-width: 440px; overflow: hidden; display: flex; justify-content: flex-end; }
+.ana.soz.tasma { -webkit-mask-image: linear-gradient(90deg, transparent, #000 32px); mask-image: linear-gradient(90deg, transparent, #000 32px); }
+.ana.soz .serit { white-space: nowrap; }
+.ana.soz.uzun { display: block; white-space: normal; max-width: 430px; line-height: 20px; padding: 6px 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.k { display: inline-block; margin-right: .28em; animation: kelime .32s ease-out both; }
+@keyframes kelime { from { opacity: 0; filter: blur(3px); transform: translateY(3px); } }
+.ikincil { font-size: 13px; color: var(--sis); white-space: nowrap; }
+.ikincil:not(:empty)::before { content: ""; display: inline-block; width: 1px; height: 13px; background: #2A3B58; margin: 0 10px; vertical-align: -2px; }
+
+/* Fare üstündeyken: mikrofon ve gizle düğmeleri */
+.kontroller { display: none; gap: 4px; margin-left: 12px; align-self: center; }
+.a-kap:hover .kontroller, .b-kap:hover .kontroller, .fare .kontroller { display: flex; animation: belir .2s ease-out; }
+.ic.bos .kontroller { margin-left: 6px; }
+@keyframes belir { from { opacity: 0; } }
+.kontroller button { width: 28px; height: 28px; border-radius: 50%; border: 0; cursor: pointer; display: grid; place-items: center;
+  background: rgba(214,233,243,.07); color: #9DB0C8; }
+.kontroller button:hover { background: rgba(214,233,243,.14); color: var(--buz); }
+.kontroller .k-mik:hover { color: var(--kizil); }
+.kontroller svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; }
+
+/* Uyanma anı: kapsülün çevresinden bir kez yayılan ışık halkası */
+.dalga { position: absolute; inset: 0; border-radius: 24px; pointer-events: none; border: 1.5px solid var(--d); opacity: 0; }
+.a-kap.uyan .dalga { animation: dalga 1s cubic-bezier(.2,.7,.3,1) .08s; }
+@keyframes dalga { 0% { opacity: .95; transform: scale(1); } 100% { opacity: 0; transform: scale(1.22, 1.9); } }
+.a-kap.giris .kapsul { animation: inis .5s cubic-bezier(.25,1.35,.45,1); }
+@keyframes inis { from { transform: translateY(-30px) scale(.7); opacity: 0; } }
+.a-kap.sars .kapsul { animation: sars .42s ease-in-out; }
+@keyframes sars { 20%, 60% { transform: translateX(-4px); } 40%, 80% { transform: translateX(4px); } }
+.a-kap.gizli { opacity: 0; transform: translate(-50%, -14px); pointer-events: none; }
+
+/* ======================================================================
+   VARYANT B — Kenar ışığı
+   ====================================================================== */
+.b-kap { position: absolute; left: 0; right: 0; top: 0; height: 0; z-index: 5; }
+.isik { position: absolute; left: 0; top: 0; width: 100%; height: 22px; pointer-events: none; }
+.cikinti-kap { position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+  filter: drop-shadow(0 0 .6px rgba(0,0,0,.6)) drop-shadow(0 8px 16px rgba(0,0,0,.4));
+  transition: transform .4s cubic-bezier(.3,.7,.2,1), opacity .4s; }
+.cikinti { position: relative; background: var(--kz); border-radius: 0 0 17px 17px;
+  transition: width .34s cubic-bezier(.3,.8,.25,1), height .34s cubic-bezier(.3,.8,.25,1); }
+.cikinti-govde { position: relative; overflow: hidden; width: 100%; height: 100%; border-radius: inherit; }
+.cikinti::before, .cikinti::after { content: ""; position: absolute; top: 0; width: 14px; height: 14px; }
+.cikinti::before { left: -14px; background: radial-gradient(circle at 0 100%, transparent 13.5px, var(--kz) 14px); }
+.cikinti::after { right: -14px; background: radial-gradient(circle at 100% 100%, transparent 13.5px, var(--kz) 14px); }
+.b-kap .ic { min-height: 36px; padding: 2px 16px 4px 8px; }
+.b-kap .ic.bos { padding-right: 8px; }
+.b-kap .halka { width: 26px; height: 26px; }
+.b-kap .halka canvas { width: 40px; height: 40px; }
+.b-kap .metin { margin-left: 8px; }
+.b-kap .ana.durum-yazi { font-size: 14px; }
+.b-kap .ana.soz { font-size: 13.5px; max-width: 400px; }
+.b-kap .ana.soz.uzun { max-width: 400px; line-height: 19px; padding: 4px 0; }
+.b-kap .ikincil { font-size: 12.5px; }
+.b-kap .kontroller button { width: 24px; height: 24px; }
+.b-kap .kontroller svg { width: 13px; height: 13px; }
+.b-kap.giris .cikinti-kap { animation: dus .45s cubic-bezier(.25,1.2,.45,1); }
+@keyframes dus { from { transform: translate(-50%, -100%); } }
+.b-kap.sars .cikinti { animation: sars .42s ease-in-out; }
+.b-kap.gizli .cikinti-kap { transform: translate(-50%, -110%); }
+
+/* ---------- Taslak araç çubuğu (uygulamanın parçası değil) ---------- */
+.taslak { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 30;
+  display: grid; gap: 4px; padding: 6px; border-radius: 12px; background: #F4F7FA; color: #1A2433;
+  font: 12px/1.2 var(--f-govde); box-shadow: 0 10px 34px rgba(0,0,0,.4), 0 0 0 1px rgba(0,0,0,.08); }
+.taslak .sira { display: flex; align-items: center; gap: 2px; justify-content: center; white-space: nowrap; }
+.taslak span { padding: 0 8px 0 6px; color: #5A6778; }
+.taslak hr { width: 1px; height: 18px; border: 0; background: #D3DAE3; margin: 0 6px; }
+.taslak button { border: 0; background: none; padding: 6px 8px; border-radius: 7px; cursor: pointer; color: #1A2433; }
+.taslak button:hover { background: #E3E9F0; }
+.taslak button[aria-pressed="true"] { background: #1A2433; color: #F4F7FA; }
+.taslak .oynat { color: #0E6E78; font-weight: 600; }
+.ipucu { position: fixed; left: 50%; bottom: 150px; transform: translateX(-50%); z-index: 29; padding: 6px 12px; border-radius: 8px;
+  background: rgba(244,247,250,.9); color: #1A2433; font-size: 12px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+.ipucu.acik { opacity: 1; }
+.karsilastir .taslak { bottom: 24px; }
+body.notlar-acik .taslak, body.notlar-acik .ipucu { left: calc((100% - 460px) / 2); }
+.karsilastir .ipucu { bottom: 116px; }
+
+/* ---------- Uygulama notları paneli ---------- */
+.notlar { position: fixed; top: 0; right: 0; bottom: 0; width: 460px; z-index: 40; overflow: auto;
+  background: #F4F7FA; color: #1A2433; padding: 26px 28px 40px; font-size: 13.5px; line-height: 1.55;
+  box-shadow: -20px 0 50px rgba(0,0,0,.35); }
+.notlar[hidden] { display: none; }
+.notlar h2 { font-family: var(--f-ekran); font-weight: 500; font-size: 22px; margin-bottom: 4px; }
+.notlar h3 { font-family: var(--f-ekran); font-weight: 500; font-size: 16px; margin: 22px 0 6px; padding-top: 16px; border-top: 1px solid #DCE2EA; }
+.notlar p, .notlar li { color: #2C3846; }
+.notlar ul { padding-left: 18px; display: grid; gap: 5px; }
+.notlar .giris-p { color: #5A6778; }
+.notlar code { font: 12px/1.4 Consolas, "Cascadia Mono", monospace; background: #E6ECF2; padding: 1px 4px; border-radius: 4px; }
+.notlar pre { font: 11.5px/1.5 Consolas, "Cascadia Mono", monospace; background: #0B1526; color: #D6E9F3; padding: 12px 14px; border-radius: 10px; overflow: auto; margin: 8px 0; }
+.notlar table { border-collapse: collapse; width: 100%; margin: 6px 0; font-size: 12.5px; }
+.notlar td, .notlar th { text-align: left; padding: 5px 6px; border-bottom: 1px solid #DCE2EA; }
+.notlar th { font-weight: 600; color: #5A6778; }
+.notlar .kapat-not { position: absolute; top: 18px; right: 18px; border: 0; background: #E3E9F0; border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 12px; }
+.notlar .uyari { background: #FFF4DE; border-left: 3px solid #F3B648; padding: 8px 10px; border-radius: 0 8px 8px 0; margin: 8px 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { transition: none; }
+  .kapsul, .cikinti, .a-kap, .cikinti-kap { transition: opacity .01s; }
+  .k, .a-kap.uyan .dalga, .a-kap.giris .kapsul, .a-kap.sars .kapsul, .b-kap.giris .cikinti-kap, .b-kap.sars .cikinti, .kontroller { animation: none !important; }
+  .a-kap.gizli { transform: translateX(-50%); }
+  .b-kap.gizli .cikinti-kap { transform: translateX(-50%); opacity: 0; }
+}
+</style>
+</head>
+<body>
+
+<div class="ekranlar" id="ekranlar"></div>
+
+<template id="ekran-sablon">
+  <div class="ekran-kutu">
+    <div class="ekran" data-varyant="a" data-arka="oyun">
+      <!-- Sahne: oyun -->
+      <div class="oyun" aria-hidden="true">
+        <div class="oyun-ic">
+          <div class="gok"></div><div class="tribun"></div>
+          <div class="saha-kap"><div class="saha"><div class="daire"></div></div></div>
+          <div class="gol-isik sol"></div><div class="gol-isik sag"></div>
+          <div class="top"></div>
+          <div class="arac"><div class="alev"></div><div class="govde"></div><i></i><i></i></div>
+        </div>
+        <div class="hud"><div class="skor mavi">2</div><div class="sure">3:42</div><div class="skor turuncu">1</div></div>
+        <div class="hud-boost">64</div>
+      </div>
+      <!-- Sahne: açık masaüstü -->
+      <div class="masaustu" aria-hidden="true">
+        <div class="pencere">
+          <div class="baslik"><span>Toplantı notları.txt - Not Defteri</span><span>–▢✕</span></div>
+          <div class="menu"><span>Dosya</span><span>Düzen</span><span>Görünüm</span></div>
+          <div class="yazi">Yarınki toplantı
+
+- Bütçe tablosunu Cuma'ya kadar bitir
+- Tasarım taslağını ekiple paylaş
+- Sunum: 10 dakika, soru-cevap sonda</div>
+        </div>
+        <div class="gorev"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+
+      <!-- VARYANT A: Kapsül -->
+      <div class="a-kap gosterge gizli" aria-live="polite">
+        <div class="kapsul"><div class="ic bos">
+          <div class="halka"><canvas></canvas></div>
+          <div class="metin"><span class="ana"></span><span class="ikincil"></span></div>
+          <div class="kontroller">
+            <button class="k-mik" title="Mikrofonu kapat" aria-label="Mikrofonu kapat"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+            <button class="k-gizle" title="Göstergeyi gizle" aria-label="Göstergeyi gizle"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>
+        </div></div>
+        <div class="dalga"></div>
+      </div>
+
+      <!-- VARYANT B: Kenar ışığı -->
+      <div class="b-kap gosterge gizli" aria-live="polite">
+        <canvas class="isik"></canvas>
+        <div class="cikinti-kap"><div class="cikinti"><div class="cikinti-govde"><div class="ic bos">
+          <div class="halka"><canvas></canvas></div>
+          <div class="metin"><span class="ana"></span><span class="ikincil"></span></div>
+          <div class="kontroller">
+            <button class="k-mik" title="Mikrofonu kapat" aria-label="Mikrofonu kapat"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
+            <button class="k-gizle" title="Göstergeyi gizle" aria-label="Göstergeyi gizle"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+          </div>
+        </div></div></div></div>
+      </div>
+    </div>
+    <div class="ekran-etiket"></div>
+  </div>
+</template>
+
+<!-- Taslak kontrolleri -->
+<div class="taslak" role="toolbar" aria-label="Taslak kontrolleri">
+  <div class="sira">
+    <span>Durum</span>
+    <button data-durum="uyandi">Uyandı</button>
+    <button data-durum="dinliyor">Dinliyor</button>
+    <button data-durum="dusunuyor">Düşünüyor</button>
+    <button data-durum="yurutuyor">Yürütüyor</button>
+    <button data-durum="konusuyor">Konuşuyor</button>
+    <button data-durum="hata">Hata</button>
+    <button data-durum="gizlen">Beklemeye dön</button>
+    <hr><button class="oynat" id="oynat">Baştan sona oynat</button>
+  </div>
+  <div class="sira">
+    <span>Varyant</span>
+    <button data-varyant="a" aria-pressed="true">A: Kapsül</button>
+    <button data-varyant="b">B: Kenar ışığı</button>
+    <button data-varyant="ab">Yan yana</button>
+    <hr><span>Arka plan</span>
+    <button data-arka="oyun" aria-pressed="true">Oyun</button>
+    <button data-arka="masaustu">Açık masaüstü</button>
+    <hr>
+    <button id="hud" aria-pressed="false">Oyun skoru</button>
+    <button id="fare" aria-pressed="false">Fare üstünde</button>
+    <button id="notlar-ac" aria-pressed="false">Uygulama notları</button>
+  </div>
+</div>
+<div class="ipucu" id="ipucu"></div>
+
+<!-- Uygulama notları -->
+<aside class="notlar" id="notlar" hidden aria-label="Uygulama notları">
+  <button class="kapat-not" id="notlar-kapat">Kapat</button>
+  <h2>Uygulama notları</h2>
+  <p class="giris-p">Taslak; uygulama kodu değişmedi. Ölçüler dip (Qt mantıksal piksel) cinsindendir.</p>
+
+  <h3>Ne zaman görünür</h3>
+  <ul>
+    <li>Uyandırma kelimesi ya da Konuş kısayolu ile açılır, durum değiştikçe güncellenir. Beklemeye dönüşten 2,5 sn sonra solar; hata 6 sn kalır. İmleç üstündeyse solmaz.</li>
+    <li>JARVIS ana penceresi öndeyse ve görünürse açılmaz: aynı bilgi zaten ekranın ortasında. Simge durumunda, bildirim alanında ya da başka uygulama öndeyken açılır.</li>
+    <li>Ayar: Ayarlar › Arayüz › <b>Dinlerken ekranın üstünde göster</b> (varsayılan açık). Öneri: <code>UISettings.overlay_enabled: bool = True</code>.</li>
+    <li>“Hareketi azalt” açıksa (<code>UISettings.reduced_motion</code>): iniş, dalga, sallanma ve kelime belirmesi yok; halka sabit çizilir, yalnızca renk ve metin değişir.</li>
+  </ul>
+
+  <h3>Konum ve oyun skoru</h3>
+  <ul>
+    <li>Üst orta, birçok oyunda skor ve sürenin yeridir (çubuktaki “Oyun skoru” ile görülebilir). Gösterge yalnızca konuşma boyunca birkaç saniye görünür, bu yüzden varsayılan konum yine üst orta.</li>
+    <li>Öneri: Ayarlar'a “Üstten boşluk: kenarda / skorun altında (72 dip)” seçimi. B varyantı kenara yapışık olduğu için yalnızca kenarda çalışır.</li>
+  </ul>
+
+  <h3>Pencere: odak çalmaz, tıklamayı engellemez</h3>
+<pre>w = OverlayWindow(None)   # ebeveynsiz üst düzey pencere
+w.setWindowFlags(
+    Qt.WindowType.FramelessWindowHint
+  | Qt.WindowType.WindowStaysOnTopHint
+  | Qt.WindowType.Tool                     # görev çubuğu / Alt+Tab'da yok
+  | Qt.WindowType.WindowTransparentForInput
+  | Qt.WindowType.WindowDoesNotAcceptFocus)
+w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+w.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+w.show()                               # activateWindow() asla çağrılmaz</pre>
+  <ul>
+    <li>Windows'ta HWND'ye ayrıca <code>WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW</code> eklenir; düğmeye tıklansa bile oyun odağı kaybetmez.</li>
+    <li>Pencere boyutu sabittir (A: 640×110, B: ekran genişliği×90 dip) ve şeffaftır; kapsül pencerenin içinde büyüyüp küçülür. Her kelimede pencereyi yeniden boyutlandırmak titreme yapar.</li>
+    <li>Bazı oyunlar en üstte kalma sırasını ezer: her gösterimde <code>SetWindowPos(HWND_TOPMOST, …, SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE)</code> yeniden uygulanır.</li>
+  </ul>
+
+  <h3>Fare üstüne gelince düğmeler</h3>
+  <ul>
+    <li>Pencere tıklamaları geçirdiği için fareyi kendisi fark edemez. Görünürken <code>QCursor.pos()</code> 10 Hz yoklanır; imleç kapsülün üstünde 300 ms durursa <code>WS_EX_TRANSPARENT</code> kaldırılır, düğmeler açılır; imleç çıkınca geri konur. Qt bayrağını <code>setWindowFlag</code> ile değiştirmek pencereyi yeniden oluşturur, bu yüzden doğrudan <code>SetWindowLongPtr</code>.</li>
+    <li>Mikrofon düğmesi mevcut <code>MICROPHONE_TOGGLED</code> akışını kullanır. Gizle düğmesi yalnızca bu konuşma için göstergeyi kapatır, isteği iptal etmez.</li>
+    <li>Oyunların çoğu imleci kilitler ya da gizler; düğmeler pratikte masaüstü içindir. Oyunda mikrofonu kapatmak için genel kısayol önerilir.</li>
+  </ul>
+
+  <h3>Tam ekran oyunlar</h3>
+  <div class="uyari">Gerçek (exclusive) tam ekran DirectX/Vulkan oyunlarının üstüne hiçbir pencere çizilemez. Göstermeye çalışmak oyunu masaüstüne düşürebilir.</div>
+  <ul>
+    <li>Kenarlıksız pencere (borderless windowed) ve pencere modunda gösterge oyunun üstünde görünür.</li>
+    <li>Göstermeden önce <code>SHQueryUserNotificationState()</code> sorulur; <code>QUNS_RUNNING_D3D_FULL_SCREEN</code> ise gösterge açılmaz, uyanma sesi ve sesli yanıt yeter.</li>
+    <li>Ayarın altına kısa açıklama: “Oyunlarda görmek için oyunu Kenarlıksız pencere modunda çalıştır.”</li>
+  </ul>
+
+  <h3>Hangi ekran</h3>
+  <ul>
+    <li>Öneri: <b>imlecin bulunduğu ekran</b> (<code>QGuiApplication.screenAt(QCursor.pos())</code>), bulunamazsa birincil ekran. Oyunlar imleci kendi ekranına kilitler; masaüstünde de kişi çoğunlukla imlecin olduğu yere bakar. Birincil ekran, oyun ikinci ekrandayken yanlış yere düşer.</li>
+    <li>Ekran uyanma anında seçilir ve konuşma bitene kadar değişmez; gösterge ekranlar arasında zıplamaz.</li>
+  </ul>
+
+  <h3>1080p ve 4K</h3>
+  <table>
+    <tr><th>Ekran, Windows ölçeği</th><th>A yüksekliği</th><th>B çıkıntısı</th></tr>
+    <tr><td>1080p, %100</td><td>44 px</td><td>38 px</td></tr>
+    <tr><td>1440p, %125</td><td>55 px</td><td>48 px</td></tr>
+    <tr><td>4K, %150</td><td>66 px</td><td>57 px</td></tr>
+    <tr><td>4K, %100 (oyuncularda yaygın)</td><td>66 px*</td><td>57 px*</td></tr>
+  </table>
+  <ul>
+    <li>Qt 6 monitör başına DPI ile çalışır; tüm ölçüler dip. *Mantıksal ekran yüksekliği 1800 dip'i aşarsa ölçüler ×1,5 büyütülür; yoksa 4K'da %100 ölçekte gösterge çok küçük kalır.</li>
+    <li>Halka QPainter ile vektörel çizilir; önbellek pixmap'leri <code>devicePixelRatio</code> ile üretilir.</li>
+  </ul>
+
+  <h3>Okunabilirlik</h3>
+  <ul>
+    <li>Zemin %93 opak lacivert; dışında 1 px siyah kontur ve yumuşak gölge. Açık arka planda kapsülün kenarı, koyu arka planda durum renginin ışığı ayırır. Metin kontrastı yaklaşık 14:1.</li>
+    <li>Arka plan bulanıklığı (acrylic) bilinçli olarak yok: şeffaf pencerede pahalı ve oyunun karesini okumayı gerektirir.</li>
+  </ul>
+
+  <h3>Performans</h3>
+  <ul>
+    <li>Yalnızca görünürken çizer. Solduktan sonra <code>hide()</code> çağrılır ve zamanlayıcı durur (sadece saydamlığı 0 yapmak yetmez).</li>
+    <li>Dinleme ve konuşmada 30 fps, düşünme ve yürütmede 15 fps, sabit anlarda 0. Hedef: %0,5'in altında CPU, oyunun kare hızına ölçülebilir etki yok.</li>
+    <li>Ek ses işleme yok: seviye zaten gelen <code>VOICE_LEVEL</code> olayından okunur.</li>
+  </ul>
+
+  <h3>Olay bağlantıları</h3>
+  <ul>
+    <li><code>STATE_CHANGED</code>: durum ve renk. <code>StateChange.detail</code>: ikincil metin.</li>
+    <li><code>VOICE_LEVEL</code> (mic / tts): halka çubukları ve kenar ışığı.</li>
+    <li><code>CHAT_STARTED.model_name</code>: Düşünüyor yanındaki model adı. <code>CHAT_DELTA</code>: Konuşuyor metni. <code>VOICE_ERROR</code>, <code>APP_ERROR</code>: hata metni.</li>
+    <li><code>VOICE_TRANSCRIPT</code>: söylenen cümle.</li>
+  </ul>
+  <div class="uyari">Kelime kelime canlı metin bugünkü ses motoruyla mümkün değil: <code>stt.transcribe()</code> sesi cümle bitince tek seferde çözer ve <code>VOICE_TRANSCRIPT</code> bir kez yayınlanır. Canlı metin için kısmi sonuç gerekir (örn. büyüyen ses tamponunu her 0,6 sn'de küçük modelle çözmek). O zamana kadar Dinliyor'da yalnızca seviye ve “Dinliyorum” görünür; cümle Düşünüyor'a geçerken bir anda belirir.</div>
+</aside>
+
+<script>
+/* ---------- Durumlar ve metinler ---------- */
+const DURUMLAR = {
+  uyandi:    { renk: "#9FF3FA", ana: "Seni duydum" },
+  dinliyor:  { renk: "#52E4F2", ana: "Dinliyorum" },
+  dusunuyor: { renk: "#8F9BFF", ana: "Düşünüyorum", ikincil: "Haiku 5.5" },
+  yurutuyor: { renk: "#F3B648", ana: "Not Defteri açılıyor" },
+  konusuyor: { renk: "#52E4F2", uzun: "Not Defteri açık. En üste “Yarınki toplantı” başlığını yazdım, devamını söyleyebilirsin." },
+  hata:      { renk: "#FF5A6A", ana: "Mikrofona ulaşılamıyor", ikincil: "Ayarlar'dan mikrofon seç" },
+  bekleme:   { renk: "#52E4F2" },
+  mikkapali: { renk: "#6F86A6", ana: "Mikrofon kapalı", ikincil: "Konuş kısayolu ile açılır" },
+};
+const KELIMELER = "Not Defteri'ni aç ve yarınki toplantı için bir not başlat".split(" ");
+const azHareket = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+let durum = "bekleme", durumZamani = performance.now(), gorunur = false;
+let kelimeSayisi = 0, zamanlayicilar = [];
+const gostergeler = [];   // {kok, tur, ic, ana, ikincil, halkaCv, seviye, isikCv, kutu}
+
+function sonra(ms, fn) { zamanlayicilar.push(setTimeout(fn, ms)); }
+function temizle() { zamanlayicilar.forEach(clearTimeout); zamanlayicilar = []; }
+
+/* ---------- Ekranları kur ---------- */
+const sablon = document.getElementById("ekran-sablon");
+const ekranlarEl = document.getElementById("ekranlar");
+let varyant = "a", arka = "oyun";
+
+function ekranlariKur() {
+  ekranlarEl.innerHTML = ""; gostergeler.length = 0;
+  const liste = varyant === "ab" ? ["a", "b"] : [varyant];
+  document.body.classList.toggle("karsilastir", varyant === "ab");
+  for (const v of liste) {
+    const n = sablon.content.cloneNode(true);
+    const kutu = n.querySelector(".ekran-kutu"), ekran = n.querySelector(".ekran");
+    ekran.dataset.varyant = v; ekran.dataset.arka = arka;
+    ekran.classList.toggle("hud-yok", document.getElementById("hud").getAttribute("aria-pressed") !== "true");
+    n.querySelector(".ekran-etiket").innerHTML = v === "a" ? "<b>A</b>Kapsül, kenardan 12 px aşağıda yüzer" : "<b>B</b>Kenar ışığı, ekranın üst kenarına yapışık";
+    ekranlarEl.appendChild(n);
+    const kok = ekran.querySelector(v === "a" ? ".a-kap" : ".b-kap");
+    const g = { kok, tur: v, ekran, kutu,
+      ic: kok.querySelector(".ic"), ana: kok.querySelector(".ana"), ikincil: kok.querySelector(".ikincil"),
+      kab: kok.querySelector(v === "a" ? ".kapsul" : ".cikinti"),
+      halkaCv: kok.querySelector(".halka canvas"), isikCv: kok.querySelector(".isik"),
+      seviye: new Float32Array(32) };
+    new ResizeObserver(() => boyutEsle(g)).observe(g.ic);
+    kok.querySelector(".k-mik").onclick = () => { akisiDurdur(); durumAyarla("mikkapali"); };
+    kok.querySelector(".k-gizle").onclick = () => { akisiDurdur(); temizle(); gizle(); };
+    kok.classList.toggle("fare", document.getElementById("fare").getAttribute("aria-pressed") === "true");
+    gostergeler.push(g);
+  }
+  olcekle();
+  gostergeler.forEach(g => { metinYaz(g); g.kok.classList.toggle("gizli", !gorunur); boyutEsle(g); });
+}
+function olcekle() {
+  const kutular = [...ekranlarEl.querySelectorAll(".ekran-kutu")];
+  for (const k of kutular) {
+    const e = k.querySelector(".ekran");
+    if (varyant === "ab") {
+      const s = Math.min((innerWidth - 80) / 2 / 1440, (innerHeight - 210) / 810);
+      e.style.width = "1440px"; e.style.height = "810px"; e.style.transform = `scale(${s})`;
+      k.style.width = 1440 * s + "px"; k.style.height = 810 * s + "px";
+    } else {
+      e.style.width = innerWidth + "px"; e.style.height = innerHeight + "px"; e.style.transform = "";
+      k.style.width = innerWidth + "px"; k.style.height = innerHeight + "px";
+    }
+  }
+}
+addEventListener("resize", olcekle);
+
+/* Kapsül genişliği içeriği izler (pencere değil, içindeki şekil büyür) */
+function boyutEsle(g) {
+  g.kab.style.width = g.ic.offsetWidth + (g.tur === "a" ? 2 : 0) + "px";
+  g.kab.style.height = g.ic.offsetHeight + (g.tur === "a" ? 2 : 0) + "px";
+  const soz = g.ana.classList.contains("soz") && !g.ana.classList.contains("uzun");
+  if (soz) { const s = g.ana.querySelector(".serit"); g.ana.classList.toggle("tasma", s && s.offsetWidth > g.ana.clientWidth + 1); }
+}
+
+/* ---------- Metin ---------- */
+function metinYaz(g) {
+  const D = DURUMLAR[durum];
+  g.ana.className = "ana"; g.ana.textContent = ""; g.ikincil.textContent = D.ikincil || "";
+  if (durum === "dinliyor" && kelimeSayisi > 0) {
+    g.ana.classList.add("soz");
+    const s = document.createElement("span"); s.className = "serit";
+    KELIMELER.slice(0, kelimeSayisi).forEach(w => { const k = document.createElement("span"); k.className = "k"; k.textContent = w; s.appendChild(k); });
+    g.ana.appendChild(s);
+  } else if (D.uzun) {
+    g.ana.classList.add("soz", "uzun"); g.ana.textContent = D.uzun;
+  } else if (D.ana) {
+    g.ana.classList.add("durum-yazi"); g.ana.textContent = D.ana;
+  }
+  g.ic.classList.toggle("bos", !g.ana.textContent);
+}
+function kelimeEkle() {
+  kelimeSayisi++;
+  for (const g of gostergeler) {
+    if (kelimeSayisi === 1) { metinYaz(g); continue; }
+    const k = document.createElement("span"); k.className = "k"; k.textContent = KELIMELER[kelimeSayisi - 1];
+    g.ana.querySelector(".serit").appendChild(k);
+  }
+}
+
+/* ---------- Durum geçişleri ---------- */
+function goster() {
+  const ilk = !gorunur; gorunur = true;
+  for (const g of gostergeler) {
+    g.kok.classList.remove("gizli");
+    if (ilk) { g.kok.classList.remove("giris"); void g.kok.offsetWidth; g.kok.classList.add("giris"); }
+  }
+}
+function gizle() {
+  gorunur = false;
+  gostergeler.forEach(g => g.kok.classList.add("gizli"));
+  ipucu("Gösterge gizlendi. Gerçekte pencere hide() edilir, çizim durur.");
+}
+function durumAyarla(d) {
+  temizle();
+  if (d === "gizlen") {                          // beklemeye dön, sonra sol
+    durum = "bekleme"; durumZamani = performance.now();
+    if (!gorunur) goster();                      // taslakta doğrudan seçilirse önce görünsün
+    gostergeler.forEach(metinYaz);
+    sonra(2500, gizle);
+  } else {
+    durum = d; durumZamani = performance.now(); kelimeSayisi = 0;
+    document.documentElement.style.setProperty("--d", DURUMLAR[d].renk);
+    goster();
+    gostergeler.forEach(metinYaz);
+    if (d === "uyandi") gostergeler.forEach(g => { g.kok.classList.remove("uyan"); void g.kok.offsetWidth; g.kok.classList.add("uyan"); });
+    if (d === "hata") gostergeler.forEach(g => { g.kok.classList.remove("sars"); void g.kok.offsetWidth; g.kok.classList.add("sars"); });
+    if (d === "dinliyor") KELIMELER.forEach((_, i) => sonra(azHareket ? 0 : 650 + i * 270, kelimeEkle));
+    if (d === "hata") sonra(6000, () => durumAyarla("gizlen"));
+    if (d === "mikkapali") sonra(1800, gizle);
+  }
+  if (d === "gizlen") document.documentElement.style.setProperty("--d", DURUMLAR.bekleme.renk);
+  document.querySelectorAll(".taslak [data-durum]").forEach(b => b.setAttribute("aria-pressed", b.dataset.durum === d));
+}
+
+let akis = [];
+function akisiDurdur() { akis.forEach(clearTimeout); akis = []; }
+function oynat() {
+  akisiDurdur(); durumAyarla("uyandi");
+  const adimlar = [[900, "dinliyor"], [4700, "dusunuyor"], [6400, "yurutuyor"], [8100, "konusuyor"], [12300, "gizlen"]];
+  for (const [ms, d] of adimlar) akis.push(setTimeout(() => durumAyarla(d), ms));
+}
+
+/* ---------- Çizim ---------- */
+function gurultu(i, t) { return Math.min(1, Math.max(0, (Math.sin(i * .37 + t * 3.1) + Math.sin(i * .11 - t * 1.7) * .7 + Math.sin(i * 1.3 + t * 5.3) * .3) / 4 + .5)); }
+
+function sesSeviyesi(z, s) {           // VOICE_LEVEL yerine benzetim
+  if (azHareket) return durum === "dinliyor" || durum === "konusuyor" ? .35 : 0;
+  if (durum === "dinliyor") {
+    const konusmada = s > .55 && kelimeSayisi < KELIMELER.length + 1 && s < .65 + KELIMELER.length * .27 + .3;
+    return konusmada ? .25 + .7 * Math.abs(Math.sin(z * 8.5)) * (.55 + .45 * Math.sin(z * 2.1)) : .06 + .03 * Math.sin(z * 3);
+  }
+  if (durum === "konusuyor") return .3 + .4 * Math.abs(Math.sin(z * 5.6)) * (.7 + .3 * Math.sin(z * 1.7));
+  return 0;
+}
+
+function tuvalHazirla(cv) {
+  const p = devicePixelRatio || 1, w = cv.clientWidth, h = cv.clientHeight;
+  if (cv.width !== Math.round(w * p) || cv.height !== Math.round(h * p)) { cv.width = Math.round(w * p); cv.height = Math.round(h * p); }
+  const c = cv.getContext("2d"); c.setTransform(p, 0, 0, p, 0, 0); c.clearRect(0, 0, w, h);
+  return [c, w, h];
+}
+
+function halkaCiz(g, z, s, lv) {
+  const [c, W] = tuvalHazirla(g.halkaCv);
+  const renk = getComputedStyle(document.documentElement).getPropertyValue("--d").trim() || "#52E4F2";
+  const R = g.tur === "a" ? 8.6 : 7.2, N = g.seviye.length;
+  c.save(); c.translate(W / 2, W / 2); c.lineCap = "round";
+  // radyal çubuklar: ses seviyesi
+  for (let i = 0; i < N; i++) {
+    let h = 0;
+    if (durum === "dinliyor" || durum === "konusuyor") h = lv * (.35 + .65 * gurultu(i * 3, z));
+    if (durum === "uyandi") h = .9 * Math.max(0, 1 - s * 1.4);
+    g.seviye[i] += (h - g.seviye[i]) * (azHareket ? 1 : .25);
+    const v = g.seviye[i]; if (v < .02) continue;
+    const a = i / N * Math.PI * 2 - Math.PI / 2, r1 = R + 2.6, r2 = r1 + v * (g.tur === "a" ? 7.5 : 6.5);
+    c.strokeStyle = renk; c.globalAlpha = .45 + v * .55; c.lineWidth = 1.4;
+    c.beginPath(); c.moveTo(Math.cos(a) * r1, Math.sin(a) * r1); c.lineTo(Math.cos(a) * r2, Math.sin(a) * r2); c.stroke();
+  }
+  c.globalAlpha = 1;
+  // ana halka (hata: kırık)
+  c.shadowColor = renk; c.shadowBlur = 7; c.strokeStyle = renk; c.lineWidth = 1.7;
+  if (durum === "hata") {
+    for (let k = 0; k < 5; k++) { const a = k / 5 * Math.PI * 2 - Math.PI / 2; c.beginPath(); c.arc(0, 0, R, a + .28, a + Math.PI * 2 / 5 - .28); c.stroke(); }
+  } else { c.beginPath(); c.arc(0, 0, R, 0, Math.PI * 2); c.stroke(); }
+  c.shadowBlur = 0;
+  // çekirdek
+  if (durum === "dusunuyor") {
+    for (let k = 0; k < 2; k++) {
+      const b = (azHareket ? .6 : z * (2.4 + k * 1.1)) * (k ? -1 : 1), r = R * (.58 - k * .2);
+      c.lineWidth = 1.6 - k * .3; c.globalAlpha = .95 - k * .3;
+      c.beginPath(); c.arc(0, 0, r, b, b + Math.PI * (.9 - k * .2)); c.stroke();
+    }
+    c.globalAlpha = 1;
+  } else if (durum === "yurutuyor") {
+    const seg = 10, dolu = azHareket ? 6 : Math.floor((s * 7) % (seg + 3));
+    for (let k = 0; k < seg; k++) {
+      const a = k / seg * Math.PI * 2 - Math.PI / 2; c.globalAlpha = k < dolu ? 1 : .2; c.lineWidth = 2;
+      c.beginPath(); c.arc(0, 0, R * .55, a + .12, a + Math.PI * 2 / seg - .12); c.stroke();
+    }
+    c.globalAlpha = 1;
+  } else {
+    const r = R * (.3 + (durum === "dinliyor" ? lv * .22 : 0));
+    c.fillStyle = renk; c.shadowColor = renk; c.shadowBlur = 6;
+    c.beginPath(); c.arc(0, 0, r, 0, Math.PI * 2); c.fill(); c.shadowBlur = 0;
+  }
+  c.restore();
+}
+
+/* B: üst kenardan sarkan ışık */
+function isikCiz(g, z, s, lv) {
+  const [c, W] = tuvalHazirla(g.isikCv);
+  const renk = getComputedStyle(document.documentElement).getPropertyValue("--d").trim() || "#52E4F2";
+  const M = W / 2, hw = g.kab.offsetWidth / 2 + 14;
+  const kol = (x0, x1, fn) => { for (let x = x0; x <= x1; x += 3) { fn(M + x, x - x0, x1 - x0); fn(M - x, x - x0, x1 - x0); } };
+  if (!gorunur && durum !== "bekleme") return;
+  // Açık arka planda ışık kaybolmasın: arkasında kenarlara doğru sönen hafif koyu bant
+  if (["dinliyor", "konusuyor", "hata", "dusunuyor", "yurutuyor"].includes(durum)) {
+    const L = hw + 340, gb = c.createLinearGradient(M - L, 0, M + L, 0);
+    gb.addColorStop(0, "rgba(6,12,24,0)"); gb.addColorStop(.3, "rgba(6,12,24,.32)"); gb.addColorStop(.7, "rgba(6,12,24,.32)"); gb.addColorStop(1, "rgba(6,12,24,0)");
+    c.save(); c.fillStyle = gb;
+    for (let y = 0; y < 14; y++) { c.globalAlpha = Math.pow(1 - y / 14, 1.6); c.fillRect(M - L, y, L * 2, 1); }
+    c.restore();
+  }
+  c.fillStyle = renk; c.shadowColor = renk; c.shadowBlur = 6;
+  if (durum === "dinliyor" || durum === "konusuyor") {
+    const yay = 70 + lv * 330;
+    kol(hw, hw + yay, (x, d, L) => {
+      const f = 1 - d / L, i = Math.round(Math.abs(x - M) / 3);
+      const h = 1.5 + Math.pow(gurultu(i, z), 2) * lv * 11 * f;
+      c.globalAlpha = .2 + .8 * f; c.fillRect(x - .9, 0, 1.8, h);
+    });
+  } else if (durum === "uyandi") {
+    const p = Math.min(1, s / .55), uz = (M - hw) * (1 - Math.pow(1 - p, 3));
+    c.globalAlpha = Math.max(0, 1 - s / 1.3);
+    const gr = c.createLinearGradient(M - hw - uz, 0, M + hw + uz, 0);
+    gr.addColorStop(0, "transparent"); gr.addColorStop(.5, renk); gr.addColorStop(1, "transparent");
+    c.fillStyle = gr; c.fillRect(M - hw - uz, 0, (hw + uz) * 2, 2.5);
+  } else if (durum === "dusunuyor") {
+    c.globalAlpha = .3; c.fillRect(M - hw - 150, 0, (hw + 150) * 2, 1.2);
+    const p = azHareket ? .5 : (z * .8) % 1, x = hw + p * 150;
+    c.globalAlpha = 1 - p * .6; c.fillRect(M + x - 22, 0, 44, 2.4); c.fillRect(M - x - 22, 0, 44, 2.4);
+  } else if (durum === "yurutuyor") {
+    c.globalAlpha = .22; c.fillRect(M - hw - 210, 0, (hw + 210) * 2, 1.4);
+    const uz = azHareket ? 120 : ((s * .55) % 1) * 210;
+    c.globalAlpha = 1; c.fillRect(M - hw - uz, 0, (hw + uz) * 2, 2.4);
+  } else if (durum === "hata") {
+    c.globalAlpha = .95;
+    kol(hw, hw + 130, (x, d) => { if (Math.floor(d / 9) % 2 === 0) c.fillRect(x - 1.5, 0, 3, 2.4); });
+  } else if (durum === "mikkapali") {
+    c.globalAlpha = .6; c.fillRect(M - hw - 60, 0, (hw + 60) * 2, 1.4);
+  } else if (durum === "bekleme") {
+    const p = Math.max(0, 1 - s / .6); if (p <= 0) return;
+    c.globalAlpha = p; c.fillRect(M - hw - 100 * p, 0, (hw + 100 * p) * 2, 1.4);
+  }
+  c.globalAlpha = 1; c.shadowBlur = 0;
+}
+
+function dongu(t) {
+  const z = t / 1000, s = (t - durumZamani) / 1000, lv = sesSeviyesi(z, s);
+  for (const g of gostergeler) {
+    halkaCiz(g, z, s, lv);
+    if (g.isikCv) isikCiz(g, z, s, lv);
+  }
+  requestAnimationFrame(dongu);
+}
+
+/* ---------- Taslak çubuğu ---------- */
+let ipucuZ;
+function ipucu(m) { const e = document.getElementById("ipucu"); e.textContent = m; e.classList.add("acik"); clearTimeout(ipucuZ); ipucuZ = setTimeout(() => e.classList.remove("acik"), 2600); }
+document.querySelectorAll(".taslak [data-durum]").forEach(b => b.onclick = () => { akisiDurdur(); durumAyarla(b.dataset.durum); });
+document.getElementById("oynat").onclick = oynat;
+function sec(attr, deger) { document.querySelectorAll(`.taslak [data-${attr}]`).forEach(b => b.setAttribute("aria-pressed", b.dataset[attr] === deger)); }
+document.querySelectorAll(".taslak [data-varyant]").forEach(b => b.onclick = () => { varyant = b.dataset.varyant; sec("varyant", varyant); ekranlariKur(); });
+document.querySelectorAll(".taslak [data-arka]").forEach(b => b.onclick = () => { arka = b.dataset.arka; sec("arka", arka); document.querySelectorAll(".ekran").forEach(e => e.dataset.arka = arka); });
+function anahtar(id, fn) { const b = document.getElementById(id); b.onclick = () => { const v = b.getAttribute("aria-pressed") !== "true"; b.setAttribute("aria-pressed", v); fn(v); }; }
+anahtar("hud", v => document.querySelectorAll(".ekran").forEach(e => e.classList.toggle("hud-yok", !v)));
+anahtar("fare", v => gostergeler.forEach(g => g.kok.classList.toggle("fare", v)));
+anahtar("notlar-ac", v => { document.getElementById("notlar").hidden = !v; document.body.classList.toggle("notlar-acik", v); });
+document.getElementById("notlar-kapat").onclick = () => document.getElementById("notlar-ac").click();
+
+/* URL ile başlangıç: ?varyant=b&arka=masaustu&durum=dinliyor&fare=1&notlar=1&hud=0&cubuk=0 */
+const q = new URLSearchParams(location.search);
+if (q.get("varyant")) { varyant = q.get("varyant"); sec("varyant", varyant); }
+if (q.get("arka")) { arka = q.get("arka"); sec("arka", arka); }
+if (q.get("hud") === "1") document.getElementById("hud").setAttribute("aria-pressed", "true");
+if (q.get("fare") === "1") document.getElementById("fare").setAttribute("aria-pressed", "true");
+if (q.get("notlar") === "1") { document.getElementById("notlar").hidden = false; document.body.classList.add("notlar-acik"); document.getElementById("notlar-ac").setAttribute("aria-pressed", "true"); }
+if (q.get("cubuk") === "0") document.querySelector(".taslak").style.display = "none";
+ekranlariKur();
+requestAnimationFrame(dongu);
+document.fonts.ready.then(() => gostergeler.forEach(boyutEsle));
+if (q.get("durum")) durumAyarla(q.get("durum")); else setTimeout(oynat, 400);
+</script>
+</body>
+</html>
