@@ -24,7 +24,7 @@ import logging
 import threading
 import time
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
@@ -273,7 +273,8 @@ class VoiceManager:
 
     def __init__(self, store: SettingsStore, bus: EventBus, state: StateMachine, chat: Any,
                  loader: ComponentLoader | None = None, sleep: Callable[[float], None] = time.sleep,
-                 send: Callable[[str], Awaitable[Any]] | None = None) -> None:
+                 send: Callable[[str], Awaitable[Any]] | None = None,
+                 vocabulary: Callable[[], Sequence[str]] | None = None) -> None:
         self.store = store
         self.bus = bus
         self.state = state
@@ -281,6 +282,9 @@ class VoiceManager:
         # Tanınan metnin gideceği yol. Assistant burada `_handle_text` verir: yazılı metinle aynı
         # (önce yerel komutlar, örn. "Not Defteri'ni aç", Claude'suz; sonra Claude).
         self._send = send or chat.send
+        # Konuşma tanıma ipucu için uygulama/oyun adları (Assistant uygulama dizinini bağlar).
+        # Ses executor'ında çağrılır; engellememeli.
+        self._vocabulary = vocabulary
         self.loader = loader or RealComponentLoader()
         self._sleep = sleep
         self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="jarvis-voice")
@@ -344,6 +348,7 @@ class VoiceManager:
             if self._cancel.is_set():   # yüklenirken kapatıldı ya da yeniden başlatıldı
                 return
             self.components = comps
+            self._attach_vocabulary(comps)
             echo = EchoGuard(comps.player.history) if comps.player is not None else None
             self.processor = FrameProcessor(comps.vad, comps.wake, echo, self._endpoint_config(), self._post)
             self.running = True
@@ -361,6 +366,12 @@ class VoiceManager:
         finally:
             self._starting = False
             self._publish_status()
+
+    def _attach_vocabulary(self, comps: VoiceComponents) -> None:
+        """Konuşma tanıma motoru ipucu destekliyorsa (WhisperSTT) uygulama adı kaynağını bağlar."""
+        setter = getattr(comps.stt, "set_vocabulary", None)
+        if self._vocabulary is not None and callable(setter):
+            setter(self._vocabulary)
 
     async def shutdown(self) -> None:
         self._cancel.set()

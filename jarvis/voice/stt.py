@@ -7,12 +7,18 @@ CUDA kütüphaneleri eksikse (Windows'ta sık: cuBLAS/cuDNN DLL'leri) model yük
 çözümlemede hata verir; bu yüzden yüklemeden hemen sonra 1 saniyelik sessizlikle ısınma
 yapılır, hata olursa CPU'ya düşülür ve kullanıcıya söylenir.
 
+Doğruluk: her çözümlemeye Türkçe bir ipucu (`initial_prompt`) verilir: komut örnekleri ve bu
+bilgisayardaki uygulama/oyun adları (bkz. `jarvis.voice.vocabulary`). İpucu yankılanırsa
+(Whisper ipucunu aynen tekrarlarsa) aynı ses ipucusuz bir kez daha çözülür.
+`JARVIS_STT_PROMPT=off` ipucunu kapatır (karşılaştırma ve sorun giderme için).
+
 Bu sınıfın yöntemleri engelleyicidir: her zaman ses thread'inde ya da executor'da çağrılır.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
 import threading
 import time
@@ -24,14 +30,21 @@ import numpy as np
 
 from jarvis.ai.router import tr_lower
 from jarvis.core.errors import JarvisError
+from jarvis.voice.vocabulary import PromptCache, VocabularyFn, estimate_tokens, is_prompt_echo
 
 log = logging.getLogger(__name__)
 
-# Whisper'ın sessizlikte "duyduğu" bilinen Türkçe/İngilizce uydurmalar (altyazı eğitim verisinden)
+# Whisper'ın sessizlikte "duyduğu" bilinen Türkçe/İngilizce uydurmalar (altyazı eğitim verisinden).
+# Yalnızca bu kalıplar: tek başına "altyazı" ya da "abone" geçen geçerli komutlar ("YouTube'da
+# altyazıyı aç", "abonelikleri aç") atılmasın.
 HALLUCINATIONS = (
-    "altyazı", "abone ol", "izlediğiniz için teşekkür", "izlediğiniz için teşekkürler",
-    "beğenmeyi unutmayın", "thank you for watching", "subtitles by", "amara.org",
+    "abone olmayı unutmayın", "abone olun", "kanalıma abone ol", "kanala abone ol",
+    "izlediğiniz için teşekkür", "beğenmeyi unutmayın", "thank you for watching", "thanks for watching",
+    "subtitles by", "amara.org",
 )
+# Tek başına "Altyazı", "Altyazı M.K.", "Altyazılar: ..." ya da yalnızca "Abone ol."
+_HALLUCINATION_RE = re.compile(r"^\W*(?:alt\s?yaz[ıi](?:lar)?\s*(?:m\.?\s*k\b|by\b|:|\W*$)|abone\s+ol\W*$)",
+                               re.IGNORECASE)
 WAKE_PREFIX = re.compile(r"^\s*(hey|hi|hay|hei|hej)?[\s,]*(jarvis|cervis|çervis|carvis|jarvıs)[\s,.!?:]*",
                          re.IGNORECASE)
 
@@ -91,21 +104,56 @@ def clean_transcript(text: str) -> str:
     t = " ".join(text.split())
     t = WAKE_PREFIX.sub("", t, count=1).strip()
     low = tr_lower(t)
-    if any(h in low or h in t.lower() for h in HALLUCINATIONS):
+    if any(h in low or h in t.lower() for h in HALLUCINATIONS) or _HALLUCINATION_RE.search(low):
         return ""
     if len(re.sub(r"[\W_]+", "", t)) < 2:   # yalnızca noktalama ya da tek harf
         return ""
     return t
 
 
+SUSPECT_NO_SPEECH = 0.5   # ipuculu çıktıda bunun üstü: ipucusuz doğrulama
+
+
+def _no_speech_prob(segs: list) -> float:
+    return max((s.no_speech_prob for s in segs), default=1.0)
+
+
+def _looks_silent(segs: list) -> bool:
+    return _no_speech_prob(segs) > 0.6 and float(np.mean([s.avg_logprob for s in segs])) < -1.0
+
+
+def prompt_enabled() -> bool:
+    return os.environ.get("JARVIS_STT_PROMPT", "").strip().lower() not in ("off", "0", "kapali", "kapalı")
+
+
 class WhisperSTT:
-    def __init__(self, model_dir: Path, choice: SttChoice, beam_size: int = 5, cpu_threads: int = 0) -> None:
+    def __init__(self, model_dir: Path, choice: SttChoice, beam_size: int = 5, cpu_threads: int = 0,
+                 vocabulary: VocabularyFn | None = None, use_prompt: bool | None = None) -> None:
         self.model_dir = model_dir
         self.choice = choice
         self.beam_size = beam_size
         self.cpu_threads = cpu_threads
+        # Ses thread'inde çağrılır: engellememeli (uygulama dizininin önbelleğini okur, taramaz)
+        self.vocabulary: VocabularyFn | None = vocabulary
+        self.use_prompt = prompt_enabled() if use_prompt is None else use_prompt
+        self._prompts = PromptCache()
         self._model = None
         self._lock = threading.Lock()
+
+    def set_vocabulary(self, vocabulary: VocabularyFn | None) -> None:
+        """Uygulama/oyun adlarını veren çağrılabilir (ipucuna eklenir). Ses motoru yüklendikten sonra bağlanır."""
+        self.vocabulary = vocabulary
+
+    def _count_tokens(self, text: str) -> int:
+        tok = getattr(self._model, "hf_tokenizer", None)
+        if tok is None:
+            return estimate_tokens(text)
+        return len(tok.encode(text, add_special_tokens=False).ids)
+
+    def initial_prompt(self) -> str | None:
+        if not self.use_prompt:
+            return None
+        return self._prompts.get(self.vocabulary, self._count_tokens) or None
 
     @property
     def label(self) -> str:
@@ -136,15 +184,32 @@ class WhisperSTT:
             raise STTError("model yüklenmedi", user_message="Konuşma tanıma henüz hazır değil.")
         f = audio.astype(np.float32) / 32768.0 if audio.dtype == np.int16 else audio.astype(np.float32)
         t0 = time.perf_counter()
+        prompt = self.initial_prompt()
         with self._lock:
-            segments, info = self._model.transcribe(
-                f, language="tr", task="transcribe", beam_size=self.beam_size, vad_filter=False,
-                condition_on_previous_text=False, without_timestamps=True, temperature=(0.0, 0.2, 0.4),
-            )
-            segs = list(segments)
+            segs, info = self._decode(f, prompt)
+            if prompt and segs:
+                raw = " ".join(s.text for s in segs)
+                if is_prompt_echo(raw, prompt):
+                    log.info("Konuşma tanıma ipucunu tekrarladı; ipucusuz yeniden çözülüyor")
+                    segs, info = self._decode(f, None)
+                elif _no_speech_prob(segs) > SUSPECT_NO_SPEECH:
+                    # İpucu, sessizlikte/gürültüde ipucundaki bir komutu "duyurabilir" ("Hesap'ı kapat.").
+                    # Konuşma olduğundan şüpheliyse ipucusuz doğrula: orada da konuşma yoksa boş say.
+                    check, _ = self._decode(f, None)
+                    if not check or _looks_silent(check) or not clean_transcript(" ".join(s.text for s in check)):
+                        log.info("İpuculu çözümleme sessizlikte metin üretti; yok sayıldı")
+                        segs = []
         text = clean_transcript(" ".join(s.text for s in segs))
-        nsp = max((s.no_speech_prob for s in segs), default=1.0)
+        nsp = _no_speech_prob(segs)
         alp = float(np.mean([s.avg_logprob for s in segs])) if segs else -10.0
-        if segs and nsp > 0.6 and alp < -1.0:
+        if segs and _looks_silent(segs):
             text = ""   # Whisper: büyük olasılıkla konuşma yok
         return Transcript(text, info.language, len(f) / 16000, time.perf_counter() - t0, nsp, alp)
+
+    def _decode(self, f: np.ndarray, prompt: str | None) -> tuple[list, object]:
+        segments, info = self._model.transcribe(  # type: ignore[union-attr]
+            f, language="tr", task="transcribe", beam_size=self.beam_size, vad_filter=False,
+            condition_on_previous_text=False, without_timestamps=True, temperature=(0.0, 0.2, 0.4),
+            initial_prompt=prompt,
+        )
+        return list(segments), info
