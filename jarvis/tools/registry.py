@@ -50,6 +50,21 @@ UNTRUSTED_NOTE = ("Aşağıdaki veri bir dosyadan, web'den ya da başka bir prog
 # Messages API'nin bir istekte kabul ettiği en fazla katı (strict) araç sayısı
 MAX_STRICT_TOOLS = 20
 
+# --- BILGISAYAR: araç arama (tool search) ---
+# ~80 aracın şemasını her istekte göndermek pahalı. Sık kullanılan "çekirdek" araçlar hemen yüklenir;
+# diğerleri `defer_loading: true` ile gider ve Claude gerektiğinde BM25 araç aramasıyla bulur. Ertelenen
+# araçlar istem önekine girmez (önbellek bozulmaz); şemaları yine her istekte gönderilir.
+TOOL_SEARCH_TOOL = {"type": "tool_search_tool_bm25_20251119", "name": "tool_search_tool_bm25"}
+TOOL_SEARCH_MIN_DEFERRED = 8     # daha az ertelenecek araç varsa arama adımı kazandırmaz
+CORE_TOOL_NAMES = frozenset({
+    "open_app", "close_app", "switch_to_app", "find_apps", "launch_game", "list_games",
+    "set_volume", "change_volume", "get_volume", "set_mute", "open_url", "web_search_in_browser", "open_settings",
+    "use_computer",
+    # Medya araçları (başka bir modülde eklenir; adı tutmazsa ToolSpec.core=True verilebilir)
+    "media_control", "media_play_pause", "media_next", "media_previous", "media_key", "play_media",
+})
+# --- BILGISAYAR sonu ---
+
 class ToolError(JarvisError):
     """İşleyicinin bilinçli olarak döndürdüğü hata; `user_message` kullanıcıya gösterilir."""
 
@@ -89,6 +104,7 @@ class ToolSpec:
     timeout_s: float = 30.0
     category: str = "genel"
     expose_to_claude: bool = True
+    core: bool = False      # BILGISAYAR: araç aramada her zaman yüklü (ertelenmez); bkz. CORE_TOOL_NAMES
 
     @property
     def supported(self) -> bool:
@@ -199,13 +215,19 @@ class ToolRegistry:
         return [s for s in self._tools.values() if s.supported or not supported_only]
 
     def to_claude_tools(self, *, names: list[str] | None = None, strict: bool = True,
-                        include_forbidden: bool = False, max_strict: int | None = MAX_STRICT_TOOLS) -> list[dict]:
+                        include_forbidden: bool = False, max_strict: int | None = MAX_STRICT_TOOLS,
+                        tool_search: bool = False) -> list[dict]:
         """Messages API `tools` listesi. Bu işletim sisteminde çalışmayan ve yasak araçlar dahil edilmez.
 
         Sıra kayıt sırasıdır ve sabittir (istem önbelleği bozulmasın).
         API bir istekte en fazla `MAX_STRICT_TOOLS` katı (strict) araç kabul eder. Katı şema önce en
         riskli araçlara verilir (onaylı > güvenli > okuma, eşitlikte kayıt sırası); geri kalanlar normal
         şemayla gider. Güvenlik değişmez: her çağrı `execute()` içinde yine şemaya göre doğrulanır.
+
+        `tool_search=True` (BILGISAYAR): çekirdek olmayan araçlar `defer_loading: true` ile işaretlenir ve
+        listenin başına BM25 araç arama aracı eklenir (en az `TOOL_SEARCH_MIN_DEFERRED` araç ertelenecekse).
+        Ertelenen araçlar da katı olabilir (API katı dil bilgisini tüm listeden kurar); eşit riskte önce
+        hemen yüklenenler katı şema alır.
         """
         selected = []
         for s in self._tools.values():
@@ -216,12 +238,20 @@ class ToolRegistry:
             if s.permission is Permission.FORBIDDEN and not include_forbidden:
                 continue
             selected.append(s)
+        # --- BILGISAYAR ---
+        deferred: set[str] = set()
+        if tool_search:
+            deferred = {s.name for s in selected if not self.is_core(s)}
+            if len(deferred) < TOOL_SEARCH_MIN_DEFERRED:
+                deferred = set()
+        # --- BILGISAYAR sonu ---
         strict_names: set[str] = set()
         if strict:
-            ranked = sorted(enumerate(selected), key=lambda it: (-int(it[1].permission), it[0]))
+            ranked = sorted(enumerate(selected),
+                            key=lambda it: (-int(it[1].permission), it[1].name in deferred, it[0]))
             limit = len(ranked) if max_strict is None else max_strict
             strict_names = {s.name for _, s in ranked[:limit]}
-        out = []
+        out = [dict(TOOL_SEARCH_TOOL)] if deferred else []
         for s in selected:
             desc = s.description
             if s.permission is Permission.CONFIRM:
@@ -229,8 +259,15 @@ class ToolRegistry:
             tool = {"name": s.name, "description": desc, "input_schema": js.for_claude(s.input_schema)}
             if s.name in strict_names:
                 tool["strict"] = True
+            if s.name in deferred:
+                tool["defer_loading"] = True
             out.append(tool)
         return out
+
+    @staticmethod
+    def is_core(spec: ToolSpec) -> bool:
+        """BILGISAYAR: araç aramada ertelenmeyen (her istekte yüklü) araç mı."""
+        return spec.core or spec.name in CORE_TOOL_NAMES
 
     # ---------- çalıştırma ----------
     async def _in_thread(self, fn: Callable, *args: Any) -> Any:  # noqa: ANN401

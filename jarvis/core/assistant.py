@@ -127,6 +127,10 @@ class Assistant:
         return self.spawn(self._handle_text(text), "chat-send")
 
     async def _handle_text(self, text: str):  # noqa: ANN202
+        # --- BILGISAYAR: bilgisayar kullanılırken gelen "dur" / "durdur" oturumu hemen durdurur ---
+        if self.chat.computer.handle_stop_text(text):
+            return None
+        # --- BILGISAYAR sonu ---
         # Aşama 5: basit yerel komutlar ("Notepad'i aç") Claude API'siz çalışır
         if await self.tool_service.handle_local(text, chat_busy=self.chat.busy):
             return None

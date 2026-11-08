@@ -42,6 +42,9 @@ class Topics:
     TOOL_CONFIRM = "tool.confirm"              # payload: ToolConfirmRequest (security/permission_manager.py)
     TOOL_EXECUTED = "tool.executed"            # payload: ToolResult
     # --- Aşama 5 sonu ---
+    # --- BILGISAYAR ---
+    AGENT_STATUS = "agent.status"              # payload: AgentStatus (jarvis/agent/service.py)
+    # --- BILGISAYAR sonu ---
     # --- Aşama 3: ses motoru ---
     VOICE_STATUS = "voice.status"              # payload: VoiceStatus
     VOICE_LEVEL = "voice.level"                # payload: VoiceLevel (mikrofon ya da konuşma seviyesi)

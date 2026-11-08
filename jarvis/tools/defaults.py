@@ -23,6 +23,7 @@ from jarvis.tools import clipboard, documents  # noqa: E402,I001
 # --- MEDYA ---
 from jarvis.tools import media  # noqa: E402
 # --- MEDYA sonu ---
+from jarvis.agent import service as computer_agent  # BILGISAYAR
 
 
 def default_context(sandbox, snapshot: Callable = lambda: None) -> ToolContext:  # noqa: ANN001
@@ -52,6 +53,7 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     media.register(reg, ctx)
     # --- MEDYA sonu ---
     sistem.register(reg, ctx)  # SISTEM
+    computer_agent.register(reg, ctx)  # BILGISAYAR: use_computer
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
     # --- RUTIN ---

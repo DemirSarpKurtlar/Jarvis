@@ -33,6 +33,24 @@ MAX_PAUSE_CONTINUATIONS = 3
 MAX_TOOL_ROUNDS = 8          # bir turda en fazla 8 araç turu: sonsuz döngü yok
 WEB_SEARCH_MAX_USES = 3
 TOOL_RESULT_MAX_CHARS = 8000
+# --- BILGISAYAR ---
+TOOL_SEARCH_PREFIX = "tool_search_tool"
+_tool_search_warned: set[str] = set()
+
+
+def has_tool_search(tools: list[dict] | None) -> bool:
+    return any(str(t.get("type", "")).startswith(TOOL_SEARCH_PREFIX) for t in tools or [])
+
+
+def strip_tool_search(tools: list[dict]) -> list[dict]:
+    """Araç arama aracını çıkarır, ertelenmiş araçları normal (hemen yüklenen) araca çevirir."""
+    out = []
+    for t in tools:
+        if str(t.get("type", "")).startswith(TOOL_SEARCH_PREFIX):
+            continue
+        out.append({k: v for k, v in t.items() if k != "defer_loading"})
+    return out
+# --- BILGISAYAR sonu ---
 
 
 @dataclass(frozen=True)
@@ -200,6 +218,7 @@ class ClaudeClient:
             timeout=anthropic.Timeout(timeout_s, connect=10.0),
             **kwargs,
         )
+        self._no_tool_search: set[str] = set()  # BILGISAYAR: araç aramayı reddeden modeller
 
     async def close(self) -> None:
         await self._client.close()
@@ -253,14 +272,31 @@ class ClaudeClient:
         tool_rounds = pauses = 0
         tool_limit_hit = False
         try:
+            # --- BILGISAYAR: araç arama desteklenmiyorsa (bu modelde 400) tüm araçlarla yeniden dene ---
+            if spec.id in self._no_tool_search and has_tool_search(params.get("tools")):
+                params["tools"] = strip_tool_search(params["tools"])
+            # --- BILGISAYAR sonu ---
             while True:
                 extra = {"betas": betas} if betas else {}
-                async with self._client.beta.messages.stream(**params, **extra) as stream:
-                    async for event in stream:
-                        if event.type == "text" and on_text is not None:
-                            on_text(event.text)
-                    final = await stream.get_final_message()
-                    request_id = stream.request_id
+                try:
+                    async with self._client.beta.messages.stream(**params, **extra) as stream:
+                        async for event in stream:
+                            if event.type == "text" and on_text is not None:
+                                on_text(event.text)
+                        final = await stream.get_final_message()
+                        request_id = stream.request_id
+                # --- BILGISAYAR ---
+                except anthropic.BadRequestError as exc:
+                    if final is not None or not has_tool_search(params.get("tools")):
+                        raise
+                    self._no_tool_search.add(spec.id)
+                    if spec.id not in _tool_search_warned:
+                        _tool_search_warned.add(spec.id)
+                        log.warning("Araç arama (tool search) %s modelinde reddedildi; tüm araçlar gönderiliyor: %s",
+                                    spec.id, getattr(exc, "message", exc))
+                    params["tools"] = strip_tool_search(params["tools"])
+                    continue
+                # --- BILGISAYAR sonu ---
                 lines, fb = _usage_lines(final, spec)
                 all_lines += lines
                 fallback_used |= fb
@@ -331,6 +367,49 @@ class ClaudeClient:
                  result.cost_usd, result.request_id)
         return result
 
+    # --- BILGISAYAR: bilgisayar kullanan ajanın tek bir turu ---
+    async def agent_turn(self, spec: ModelSpec, system: list[dict], messages: list[dict], tools: list[dict], *,
+                         effort: str = "low", betas: list[str] | None = None,
+                         context_management: dict | None = None, cache: bool = True,
+                         max_tokens: int | None = None) -> AgentTurn:
+        """Akışlı tek istek; araçları çalıştırmaz (döngü `jarvis.agent.session`'da).
+
+        Düşünme uyarlamalıdır (5.5 modellerinde kapatılamaz); derinlik `effort` ile ayarlanır. `cache`
+        açıksa üst düzey otomatik önbellek: her turda büyüyen geçmişin önceki kısmı önbellekten okunur.
+        Asistan içeriği (düşünme blokları dahil) çağıran tarafından değiştirilmeden geri gönderilmelidir.
+        """
+        params: dict = {
+            "model": spec.id,
+            "max_tokens": max_tokens or spec.max_output_tokens,
+            "system": system,
+            "messages": messages,
+            "tools": tools,
+            "output_config": {"effort": effort},
+        }
+        if context_management:
+            params["context_management"] = context_management
+        if cache:
+            params["cache_control"] = {"type": "ephemeral"}
+        extra = {"betas": list(betas)} if betas else {}
+        anthropic = _sdk()
+        try:
+            async with self._client.beta.messages.stream(**params, **extra) as stream:
+                final = await stream.get_final_message()
+                request_id = stream.request_id
+        except anthropic.AnthropicError as exc:
+            err = map_error(exc, spec.id)
+            log.error("Claude hatası (bilgisayar, %s): %s", err.kind.value, err)
+            raise err from exc
+        lines, _ = _usage_lines(final, spec)
+        text, _ = _extract(final)
+        turn = AgentTurn(final, lines, request_id, final.stop_reason, str(final.model), text)
+        u = sum((x.usage for x in lines), TokenUsage())
+        log.info("Bilgisayar turu: model=%s durma=%s giriş=%d çıkış=%d önbellek_yazma=%d önbellek_okuma=%d "
+                 "maliyet=$%.5f istek=%s", turn.model_served, turn.stop_reason, u.input_tokens, u.output_tokens,
+                 u.cache_creation_tokens, u.cache_read_tokens, turn.cost_usd, request_id)
+        return turn
+    # --- BILGISAYAR sonu ---
+
     # ---- Aşama 4 (hafıza): yapılandırılmış JSON çıktısı, akışsız ----
     async def complete_json(self, spec: ModelSpec, system: str, user_text: str, schema: dict, *,
                             effort: str = "low", max_tokens: int = 1500) -> JsonResult:
@@ -381,3 +460,21 @@ class JsonResult:
     stop_reason: str | None
     model_served: str
 # ---- Aşama 4 sonu ----
+
+
+# --- BILGISAYAR ---
+@dataclass
+class AgentTurn:
+    """`ClaudeClient.agent_turn` sonucu."""
+
+    message: object               # BetaMessage (içerik değiştirilmeden geri gönderilir)
+    cost_lines: list[CostLine]
+    request_id: str | None
+    stop_reason: str | None
+    model_served: str
+    text: str
+
+    @property
+    def cost_usd(self) -> float:
+        return sum(line.cost_usd for line in self.cost_lines)
+# --- BILGISAYAR sonu ---

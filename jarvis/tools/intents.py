@@ -328,6 +328,26 @@ def _rutin(cleaned: str, f: str) -> Intent | None:
         return Intent("run_routine", {"name": m.group(1)[:60]}, "Rutin")
     return None
 # --- RUTIN sonu ---
+# --- BILGISAYAR: "bilgisayarı sen kullan: ...", "Valorant'ı aç ve takımlı ölüm kalım maçı başlat" ---
+_COMPUTER_PREFIX = re.compile(
+    r"^(?:bilgisayar[ıi](?:m[ıi])?\s+(?:sen\s+)?(?:kullan(?:arak|[ıi]p)?|y[öo]net(?:erek)?)|"
+    r"ekran[ıi]\s+(?:sen\s+)?kullanarak|ekrana\s+bakarak|"
+    r"fare(?:yi)?\s+(?:ve|ile)\s+klavye(?:yi)?\s+(?:sen\s+)?kullanarak)\s*[:,\-–]?\s+(.{3,})$")
+_QUEUE_GOAL = re.compile(r"(ma[cç]\S*\s+(?:ba[sş]lat|bul|ara)|s[ıi]raya\s+gir|kuyru[gğ]a\s+gir|e[sş]le[sş]me\s+ara|"
+                         r"mod(?:unu|u|una)?\s+se[cç])")
+_OPEN_AND = re.compile(r"\b(?:a[cç]|ba[sş]lat|[cç]al[ıi][sş]t[ıi]r)(?:[ıi]p\s+|\s*(?:ve|,|sonra|ard[ıi]ndan)\s+)")
+
+
+def _computer_use(cleaned: str) -> Intent | None:
+    low = tr_lower(cleaned)
+    m = _COMPUTER_PREFIX.match(low)
+    if m:
+        goal = cleaned[len(cleaned) - len(m.group(1)):].strip() if len(low) == len(cleaned) else m.group(1)
+        return Intent("use_computer", {"goal": goal[:500]}, "Bilgisayarı kullanma")
+    if _OPEN_AND.search(low) and _QUEUE_GOAL.search(low):
+        return Intent("use_computer", {"goal": cleaned[:500]}, "Bilgisayarı kullanma")
+    return None
+# --- BILGISAYAR sonu ---
 
 
 def parse(text: str) -> Intent | None:
@@ -336,6 +356,11 @@ def parse(text: str) -> Intent | None:
     cleaned = _clean(text)
     if not cleaned:
         return None
+    # --- BILGISAYAR: çok adımlı olsa da ekranı kullanma isteği (çok adım kuralından önce) ---
+    hit = _computer_use(cleaned)
+    if hit:
+        return hit
+    # --- BILGISAYAR sonu ---
     f = fold(cleaned)
     # --- RUTIN ---
     # Sabah brifingi ve kullanıcı rutinleri: rutin sözleri "ve" içerebilir, çoklu adım kuralından önce bakılır

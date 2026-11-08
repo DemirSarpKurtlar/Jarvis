@@ -137,6 +137,19 @@ class SistemSettings(_Section):
     gpu_alert_cooldown_min: int = Field(10, ge=1, le=240)   # iki uyarı arası en az
     gpu_alert_speak: bool = True                            # sesli de söyle (JARVIS boştaysa)
 # --- SISTEM sonu ---
+# --- BILGISAYAR: bilgisayar kullanan ajan ---
+class ComputerUseSettings(_Section):
+    enabled: bool = True
+    # Varsayılan ucuz model; zor görevler için "claude-sonnet-5-5" seçilebilir
+    model: str = Field("claude-haiku-5-5", min_length=1)
+    effort: Literal["low", "medium", "high"] = "low"
+    max_steps: int = Field(40, ge=1, le=150)            # Claude turu
+    max_minutes: float = Field(5.0, ge=0.5, le=30.0)    # duvar saati
+    max_cost_usd: float = Field(0.15, ge=0.0, le=5.0)   # bir oturumun en çok maliyeti (0: yalnızca günlük bütçe)
+    screenshot_long_edge: int = Field(1366, ge=640, le=2576)
+    monitor: Literal["primary", "active"] = "primary"   # oturumun kullandığı ekran
+    kill_switch: bool = True                            # Esc'ye iki kez basınca dur
+# --- BILGISAYAR sonu ---
 
 
 class Settings(_Section):
@@ -150,6 +163,7 @@ class Settings(_Section):
     tools: ToolSettings = Field(default_factory=ToolSettings)  # Aşama 5
     briefing: BriefingSettings = Field(default_factory=BriefingSettings)  # --- RUTIN --- (tek satır)
     sistem: SistemSettings = Field(default_factory=SistemSettings)  # SISTEM
+    computer: ComputerUseSettings = Field(default_factory=ComputerUseSettings)  # BILGISAYAR
 
 
 class SettingsStore:
