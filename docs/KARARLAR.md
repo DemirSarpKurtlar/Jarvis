@@ -108,9 +108,9 @@ Yeni bir karar alındığında buraya tarihle eklenir.
 3. Ses motoru: uyandırma kelimesi, STT, TTS, sözü kesme, bekleme ✅ (Linux'ta sahte ses sürücüsü ve gerçek modellerle test edildi; mikrofon/hoparlör ve Türkçe modeller Windows'ta doğrulanacak: `docs/ASAMA3-TEST-RAPORU.md`)
 4. Hafıza ✅ (sahte API ile test edildi; canlı test Windows'ta bekliyor: `docs/ASAMA4-TEST-RAPORU.md`)
 5. Windows araçları ve izin sistemi ✅ (Linux'ta sahte arka uçlarla test edildi; gerçek Windows testleri `pytest -m windows`: `docs/ASAMA5-TEST-RAPORU.md`)
-6. Orkestrasyon
-7. Profesyonel arayüz
-8. Kalite güvencesi
+6. Orkestrasyon ✅ (Claude araç kullanımı ToolService üzerinden, onay ve denetim kaydıyla; yerel Türkçe komutlar Claude'suz; sesli komutlar da aynı yoldan; Otomasyon ekranı: `tests/test_orchestration.py`)
+7. Profesyonel arayüz ✅ (tüm ekranlar gerçek: Panel, Konuşmalar, Hafıza, Sistem, Otomasyon, Ayarlar; görev çubuğu simgesi)
+8. Kalite güvencesi 🟡 (540 otomatik test; her gönderimde Windows CI: test, paket, kurulum/yükseltme/kaldırma. Gerçek mikrofon/hoparlör ve canlı API testi kullanıcının bilgisayarında bekliyor)
 9. Paketleme ve kurulum ✅ (Windows'ta CI ile doğrulanıyor: `.github/workflows/windows.yml`)
 
 ## Arayüz taslağı
