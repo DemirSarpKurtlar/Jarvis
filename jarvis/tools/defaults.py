@@ -19,6 +19,9 @@ from jarvis.tools.registry import ToolContext, ToolRegistry
 # --- BELGE ---
 from jarvis.tools import clipboard, documents  # noqa: E402,I001
 # --- BELGE sonu ---
+# --- MEDYA ---
+from jarvis.tools import media  # noqa: E402
+# --- MEDYA sonu ---
 
 
 def default_context(sandbox, snapshot: Callable = lambda: None) -> ToolContext:  # noqa: ANN001
@@ -44,6 +47,9 @@ def build_registry(ctx: ToolContext, audit: AuditLogger | None = None, permissio
     clipboard.register(reg, ctx)
     documents.register(reg, ctx)
     # --- BELGE sonu ---
+    # --- MEDYA ---
+    media.register(reg, ctx)
+    # --- MEDYA sonu ---
     if ctx.scheduler is None:
         ctx.scheduler = scheduler.TaskScheduler(reg)
     return reg

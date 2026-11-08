@@ -289,6 +289,15 @@ def parse(text: str) -> Intent | None:
     if not f or _MULTI.search(f) or re.search(r"[,;]", cleaned):
         return None
 
+    # --- MEDYA ---
+    # Medya/ses komutları genel kurallardan önce: "şarkıyı geç" pencereye geçme sanılmasın
+    from jarvis.tools.media_intents import parse_media
+
+    hit = parse_media(f, cleaned)
+    if hit:
+        return hit
+    # --- MEDYA sonu ---
+
     for rule in (_volume, _power, _settings):
         hit = rule(f)
         if hit:
